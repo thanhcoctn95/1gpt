@@ -21,3 +21,13 @@ build/
 *secret*
 *token*
 *key*
+
+# IDE and generated build caches
+.idea/
+.gradle/
+**/.gradle/
+
+# Local backups and database dumps
+backups/
+*.dump
+*.dump.list
