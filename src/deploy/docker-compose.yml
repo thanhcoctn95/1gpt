@@ -1,0 +1,130 @@
+# 1GPT — Local Docker Compose
+# Brings up the full stack: PostgreSQL + Redis + New API + Potal backend + Potal frontend
+#
+# Usage:
+#   cd src/deploy
+#   docker compose up -d --build
+#
+# Access:
+#   Potal frontend (admin/user portal):  http://localhost:5174
+#   Potal backend API:                   http://localhost:8081
+#   New API (Go gateway + admin):        http://localhost:3000
+#   (port 5174 avoids conflict with local `npm run dev` on 5173)
+#
+# Notes:
+#   - new-api uses official image calciumion/new-api:latest (native arm64 on Apple Silicon)
+#   - Redis added per docs.newapi.pro standard config (REDIS_CONN_STRING=redis://redis)
+#   - potal-backend and potal-frontend are built from local source (includes token-pack changes)
+#   - PostgreSQL data persists in named volume `oneapi-pg-data`
+#   - Change SESSION_SECRET / CRYPTO_SECRET before any non-local use
+
+services:
+  new-api-postgres:
+    image: postgres:16-alpine
+    container_name: oneapi-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: newapi
+      POSTGRES_PASSWORD: newapi_local_dev
+      POSTGRES_DB: newapi
+      TZ: Asia/Ho_Chi_Minh
+    volumes:
+      - oneapi-pg-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U newapi -d newapi"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - oneapi-net
+
+  redis:
+    image: redis:latest
+    container_name: oneapi-redis
+    restart: unless-stopped
+    networks:
+      - oneapi-net
+
+  new-api:
+    image: calciumion/new-api:latest
+    container_name: oneapi-new-api
+    restart: unless-stopped
+    command: --log-dir /app/logs
+    ports:
+      - "3000:3000"
+    volumes:
+      - oneapi-new-api-data:/data
+      - oneapi-new-api-logs:/app/logs
+    environment:
+      SQL_DSN: "postgres://newapi:newapi_local_dev@new-api-postgres:5432/newapi?sslmode=disable"
+      REDIS_CONN_STRING: "redis://redis"
+      TZ: Asia/Ho_Chi_Minh
+      ERROR_LOG_ENABLED: "true"
+      BATCH_UPDATE_ENABLED: "true"
+      BATCH_UPDATE_INTERVAL: "5"
+      NODE_NAME: new-api-local
+      SESSION_SECRET: local_dev_session_secret_change_me_32
+      CRYPTO_SECRET: local_dev_crypto_secret_change_me_32
+    depends_on:
+      new-api-postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "wget -q -O - http://localhost:3000/api/status | grep -o '\"success\":\\s*true' || exit 1",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    networks:
+      - oneapi-net
+
+  potal-backend:
+    build:
+      context: ../potal/backend
+      dockerfile: Dockerfile
+    container_name: oneapi-potal-backend
+    restart: unless-stopped
+    ports:
+      - "8081:8081"
+    environment:
+      PORTAL_BACKEND_PORT: "8081"
+      NEW_API_BASE_URL: http://new-api:3000
+      NEW_API_PUBLIC_BASE_URL: http://localhost:3000
+      NEW_API_DB_URL: jdbc:postgresql://new-api-postgres:5432/newapi
+      NEW_API_DB_USER: newapi
+      NEW_API_DB_PASSWORD: newapi_local_dev
+      NEW_API_POSTGRES_DB: newapi
+    depends_on:
+      new-api-postgres:
+        condition: service_healthy
+      new-api:
+        condition: service_started
+    networks:
+      - oneapi-net
+
+  potal-frontend:
+    build:
+      context: ../potal/frontend
+      dockerfile: Dockerfile
+    container_name: oneapi-potal-frontend
+    restart: unless-stopped
+    ports:
+      - "5174:80"
+    depends_on:
+      - potal-backend
+    networks:
+      - oneapi-net
+
+volumes:
+  oneapi-pg-data:
+  oneapi-new-api-data:
+  oneapi-new-api-logs:
+
+networks:
+  oneapi-net:
+    driver: bridge

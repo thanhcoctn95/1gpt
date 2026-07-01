@@ -1,0 +1,629 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: new-api
+  namespace: oneapi
+  labels:
+    app: new-api
+spec:
+  selector:
+    matchLabels:
+      app: new-api
+  namespaceSelector:
+    matchNames:
+      - oneapi
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 30s
+      scrapeTimeout: 10s
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: new-api-alerts
+  namespace: oneapi
+  labels:
+    app: new-api
+spec:
+  groups:
+    - name: new-api.rules
+      rules:
+        - alert: NewApiPodRestarting
+          expr: increase(kube_pod_container_status_restarts_total{namespace="oneapi", pod=~"new-api-.*", container="new-api"}[10m]) > 0
+          for: 2m
+          labels:
+            severity: warning
+          annotations:
+            summary: New API pod restarted
+            description: New API container restarted in the last 10 minutes.
+        - alert: NewApiHigh5xxRate
+          expr: sum(rate(new_api_http_requests_total{namespace="oneapi", status=~"5.."}[5m])) / clamp_min(sum(rate(new_api_http_requests_total{namespace="oneapi"}[5m])), 0.001) > 0.05
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: New API 5xx rate is high
+            description: More than 5% of New API requests are returning 5xx responses for 5 minutes.
+        - alert: NewApiV1High5xxRate
+          expr: sum(rate(new_api_http_requests_total{namespace="oneapi", route=~"/v1.*", status=~"5.."}[5m])) / clamp_min(sum(rate(new_api_http_requests_total{namespace="oneapi", route=~"/v1.*"}[5m])), 0.001) > 0.05
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: New API /v1 5xx rate is high
+            description: More than 5% of /v1 requests are returning 5xx responses for 5 minutes.
+        - alert: NewApiHighLatency
+          expr: histogram_quantile(0.95, sum by (le) (rate(new_api_http_request_duration_seconds_bucket{namespace="oneapi"}[5m]))) > 2
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: New API p95 latency is high
+            description: New API p95 latency is above 2 seconds for 10 minutes.
+        - alert: NewApiV1HighLatency
+          expr: histogram_quantile(0.95, sum by (le) (rate(new_api_http_request_duration_seconds_bucket{namespace="oneapi", route=~"/v1.*"}[5m]))) > 2
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: New API /v1 p95 latency is high
+            description: New API /v1 p95 latency is above 2 seconds for 10 minutes.
+        - alert: NewApiDatabaseConnectionFailure
+          expr: absent(new_api_db_up{namespace="oneapi"}) or min_over_time(new_api_db_up{namespace="oneapi"}[5m]) == 0
+          for: 3m
+          labels:
+            severity: critical
+          annotations:
+            summary: New API database connection failure
+            description: New API cannot ping the primary database, or Prometheus is not receiving the database health metric.
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: new-api-grafana-dashboard
+  namespace: cattle-dashboards
+  labels:
+    app: new-api
+    grafana_dashboard: "1"
+data:
+  new-api-dashboard.json: |-
+    {
+      "annotations": {
+        "list": []
+      },
+      "editable": true,
+      "fiscalYearStartMonth": 0,
+      "graphTooltip": 0,
+      "links": [
+        {
+          "title": "API base",
+          "url": "https://new.api.1api.click/v1",
+          "targetBlank": true
+        }
+      ],
+      "liveNow": false,
+      "panels": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "reqps"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 5,
+            "w": 6,
+            "x": 0,
+            "y": 0
+          },
+          "id": 1,
+          "targets": [
+            {
+              "expr": "sum(rate(new_api_http_requests_total{namespace=\"oneapi\", route=~\"/v1.*\"}[5m]))",
+              "legendFormat": "req/s",
+              "refId": "A"
+            }
+          ],
+          "title": "/v1 RPS",
+          "type": "stat"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percentunit"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 5,
+            "w": 6,
+            "x": 6,
+            "y": 0
+          },
+          "id": 2,
+          "targets": [
+            {
+              "expr": "sum(rate(new_api_http_requests_total{namespace=\"oneapi\", route=~\"/v1.*\", status=~\"5..\"}[5m])) / clamp_min(sum(rate(new_api_http_requests_total{namespace=\"oneapi\", route=~\"/v1.*\"}[5m])), 0.001)",
+              "legendFormat": "5xx",
+              "refId": "A"
+            }
+          ],
+          "title": "/v1 5xx Error Rate",
+          "type": "stat"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 5,
+            "w": 6,
+            "x": 12,
+            "y": 0
+          },
+          "id": 3,
+          "targets": [
+            {
+              "expr": "histogram_quantile(0.95, sum by (le) (rate(new_api_http_request_duration_seconds_bucket{namespace=\"oneapi\", route=~\"/v1.*\"}[5m])))",
+              "legendFormat": "p95",
+              "refId": "A"
+            }
+          ],
+          "title": "/v1 Latency p95",
+          "type": "stat"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 5,
+            "w": 6,
+            "x": 18,
+            "y": 0
+          },
+          "id": 4,
+          "targets": [
+            {
+              "expr": "histogram_quantile(0.99, sum by (le) (rate(new_api_http_request_duration_seconds_bucket{namespace=\"oneapi\", route=~\"/v1.*\"}[5m])))",
+              "legendFormat": "p99",
+              "refId": "A"
+            }
+          ],
+          "title": "/v1 Latency p99",
+          "type": "stat"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "reqps"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 5
+          },
+          "id": 5,
+          "targets": [
+            {
+              "expr": "sum by (status) (rate(new_api_http_requests_total{namespace=\"oneapi\", route=~\"/v1.*\"}[5m]))",
+              "legendFormat": "{{status}}",
+              "refId": "A"
+            }
+          ],
+          "title": "HTTP /v1 — RPS by status",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 5
+          },
+          "id": 6,
+          "targets": [
+            {
+              "expr": "histogram_quantile(0.50, sum by (le) (rate(new_api_http_request_duration_seconds_bucket{namespace=\"oneapi\", route=~\"/v1.*\"}[5m])))",
+              "legendFormat": "p50",
+              "refId": "A"
+            },
+            {
+              "expr": "histogram_quantile(0.95, sum by (le) (rate(new_api_http_request_duration_seconds_bucket{namespace=\"oneapi\", route=~\"/v1.*\"}[5m])))",
+              "legendFormat": "p95",
+              "refId": "B"
+            },
+            {
+              "expr": "histogram_quantile(0.99, sum by (le) (rate(new_api_http_request_duration_seconds_bucket{namespace=\"oneapi\", route=~\"/v1.*\"}[5m])))",
+              "legendFormat": "p99",
+              "refId": "C"
+            }
+          ],
+          "title": "HTTP /v1 — Latency p50 / p95 / p99",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "reqps"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 13
+          },
+          "id": 7,
+          "targets": [
+            {
+              "expr": "topk(10, sum by (route) (rate(new_api_http_requests_total{namespace=\"oneapi\", route=~\"/v1.*\"}[5m])))",
+              "legendFormat": "{{route}}",
+              "refId": "A"
+            }
+          ],
+          "title": "Top /v1 endpoints — RPS",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 13
+          },
+          "id": 8,
+          "targets": [
+            {
+              "expr": "topk(10, histogram_quantile(0.95, sum by (route, le) (rate(new_api_http_request_duration_seconds_bucket{namespace=\"oneapi\", route=~\"/v1.*\"}[5m]))))",
+              "legendFormat": "{{route}}",
+              "refId": "A"
+            }
+          ],
+          "title": "Top /v1 endpoints — p95 latency",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "reqps"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 21
+          },
+          "id": 9,
+          "targets": [
+            {
+              "expr": "sum(rate(new_api_http_requests_total{namespace=\"oneapi\", route=~\"/v1.*\", status=~\"4..\"}[5m]))",
+              "legendFormat": "4xx",
+              "refId": "A"
+            },
+            {
+              "expr": "sum(rate(new_api_http_requests_total{namespace=\"oneapi\", route=~\"/v1.*\", status=~\"5..\"}[5m]))",
+              "legendFormat": "5xx",
+              "refId": "B"
+            }
+          ],
+          "title": "/v1 4xx vs 5xx rate",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "reqps"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 21
+          },
+          "id": 10,
+          "targets": [
+            {
+              "expr": "topk(12, sum by (route) (rate(new_api_http_requests_total{namespace=\"oneapi\"}[5m])))",
+              "legendFormat": "{{route}}",
+              "refId": "A"
+            }
+          ],
+          "title": "All New API endpoints — RPS by route",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 5,
+            "w": 6,
+            "x": 0,
+            "y": 29
+          },
+          "id": 11,
+          "targets": [
+            {
+              "expr": "min(up{namespace=\"oneapi\", job=\"new-api\"})",
+              "legendFormat": "up",
+              "refId": "A"
+            }
+          ],
+          "title": "Scrape Up",
+          "type": "stat"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 5,
+            "w": 6,
+            "x": 6,
+            "y": 29
+          },
+          "id": 12,
+          "targets": [
+            {
+              "expr": "min(new_api_db_up{namespace=\"oneapi\"})",
+              "legendFormat": "db",
+              "refId": "A"
+            }
+          ],
+          "title": "DB Ping",
+          "type": "stat"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 5,
+            "w": 6,
+            "x": 12,
+            "y": 29
+          },
+          "id": 13,
+          "targets": [
+            {
+              "expr": "sum(increase(kube_pod_container_status_restarts_total{namespace=\"oneapi\", pod=~\"new-api-.*\", container=\"new-api\"}[1h]))",
+              "legendFormat": "restarts",
+              "refId": "A"
+            }
+          ],
+          "title": "Pod restarts / 1h",
+          "type": "stat"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 5,
+            "w": 6,
+            "x": 18,
+            "y": 29
+          },
+          "id": 14,
+          "targets": [
+            {
+              "expr": "max(go_goroutines{namespace=\"oneapi\", job=\"new-api\"})",
+              "legendFormat": "goroutines",
+              "refId": "A"
+            }
+          ],
+          "title": "Goroutines",
+          "type": "stat"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 8,
+            "x": 0,
+            "y": 34
+          },
+          "id": 15,
+          "targets": [
+            {
+              "expr": "max(go_goroutines{namespace=\"oneapi\", job=\"new-api\"})",
+              "legendFormat": "goroutines",
+              "refId": "A"
+            },
+            {
+              "expr": "max(go_threads{namespace=\"oneapi\", job=\"new-api\"})",
+              "legendFormat": "threads",
+              "refId": "B"
+            }
+          ],
+          "title": "Go runtime — goroutines / threads",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 8,
+            "x": 8,
+            "y": 34
+          },
+          "id": 16,
+          "targets": [
+            {
+              "expr": "sum(rate(process_cpu_seconds_total{namespace=\"oneapi\", job=\"new-api\"}[5m]))",
+              "legendFormat": "cores",
+              "refId": "A"
+            }
+          ],
+          "title": "Process CPU",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "bytes"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 8,
+            "x": 16,
+            "y": 34
+          },
+          "id": 17,
+          "targets": [
+            {
+              "expr": "max(process_resident_memory_bytes{namespace=\"oneapi\", job=\"new-api\"})",
+              "legendFormat": "rss",
+              "refId": "A"
+            },
+            {
+              "expr": "max(go_memstats_heap_alloc_bytes{namespace=\"oneapi\", job=\"new-api\"})",
+              "legendFormat": "heap alloc",
+              "refId": "B"
+            }
+          ],
+          "title": "Memory — RSS / Heap",
+          "type": "timeseries"
+        }
+      ],
+      "refresh": "30s",
+      "schemaVersion": 39,
+      "tags": [
+        "new-api",
+        "oneapi",
+        "v1"
+      ],
+      "templating": {
+        "list": []
+      },
+      "time": {
+        "from": "now-6h",
+        "to": "now"
+      },
+      "timepicker": {},
+      "timezone": "browser",
+      "title": "New API /v1 Deep Monitoring",
+      "uid": "new-api-overview",
+      "version": 2,
+      "weekStart": ""
+    }

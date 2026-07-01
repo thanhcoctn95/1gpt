@@ -1,0 +1,4 @@
+k8s/01-secret.yaml
+*.secret
+.env
+.env.*

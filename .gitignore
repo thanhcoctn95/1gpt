@@ -1,0 +1,23 @@
+.pi/
+.opencode/
+.pi/npm/node_modules/
+.pi/git/
+.pi/tasks/tasks.json
+.pikit-backup/
+
+# Dependencies/build/runtime caches
+node_modules/
+dist/
+build/
+.next/
+.cache/
+.DS_Store
+
+# Local environment and secrets; keep examples trackable
+.env
+.env.*
+!.env.example
+!.env.*.example
+*secret*
+*token*
+*key*

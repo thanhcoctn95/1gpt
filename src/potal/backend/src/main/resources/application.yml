@@ -1,0 +1,15 @@
+server:
+  port: ${PORTAL_BACKEND_PORT:8081}
+
+spring:
+  application:
+    name: new-api-potal-backend
+  datasource:
+    url: ${NEW_API_DB_URL:jdbc:postgresql://localhost:5432/newapi}
+    username: ${NEW_API_DB_USER:newapi}
+    password: ${NEW_API_DB_PASSWORD:change-me}
+    driver-class-name: org.postgresql.Driver
+
+new-api:
+  base-url: ${NEW_API_BASE_URL:http://localhost:3000}
+  public-base-url: ${NEW_API_PUBLIC_BASE_URL:${NEW_API_BASE_URL:http://localhost:3000}}
