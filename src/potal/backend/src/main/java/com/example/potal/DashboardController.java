@@ -1,6 +1,8 @@
 package com.example.potal;
 
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
@@ -19,6 +21,21 @@ import org.springframework.web.client.RestTemplate;
 @RestController
 @RequestMapping("/api/dashboard")
 public class DashboardController {
+    private static final String LOG_ERROR_CONDITION = "(COALESCE(l.content, '') ~ 'status_code=[45][0-9][0-9]' OR COALESCE(l.other, '') ILIKE '%\"error_code\"%' OR COALESCE(l.other, '') ILIKE '%\"error_type\"%')";
+    // HTTP status code: prefer the one embedded in content, fall back to the JSON in `other`.
+    private static final String LOG_STATUS_CODE_SQL =
+        "NULLIF(COALESCE(substring(l.content from 'status_code=([0-9]{3})'), " +
+        "substring(l.other from '\"status_code\"[[:space:]]*:[[:space:]]*([0-9]{3})')), '')";
+    // Human-readable error message: strip the `status_code=NNN,` prefix and trailing
+    // `(reset after ...)` / `(request id: ...)` noise from content.
+    private static final String LOG_ERROR_MESSAGE_SQL =
+        "NULLIF(regexp_replace(" +
+        "COALESCE(substring(l.content from 'status_code=[0-9]{3},[[:space:]]*(.*)$'), l.content, ''), " +
+        "'[[:space:]]*\\((reset after|request id)[^)]*\\)', '', 'g'), '')";
+    private static final String LOG_ERROR_TYPE_SQL =
+        "NULLIF(substring(l.other from '\"error_type\"[[:space:]]*:[[:space:]]*\"([^\"]+)\"'), '')";
+    private static final String LOG_ERROR_CODE_SQL =
+        "NULLIF(substring(l.other from '\"error_code\"[[:space:]]*:[[:space:]]*\"([^\"]+)\"'), '')";
     private final JdbcTemplate jdbc;
     private final RestTemplate restTemplate = new RestTemplate();
     private final AuthService authService;
@@ -168,24 +185,68 @@ public class DashboardController {
     public ResponseEntity<?> logs(
         @RequestHeader(value = "Authorization", required = false) String authorization,
         @RequestParam(value = "page", defaultValue = "1") int page,
-        @RequestParam(value = "size", defaultValue = "10") int size
+        @RequestParam(value = "size", defaultValue = "10") int size,
+        @RequestParam(value = "modelName", required = false) String modelName,
+        @RequestParam(value = "status", required = false) String status,
+        @RequestParam(value = "startTime", required = false) Long startTime,
+        @RequestParam(value = "endTime", required = false) Long endTime
     ) {
         Map<String, Object> auth = authService.requireUser(authorization);
         int safePage = Math.max(1, page);
         int safeSize = Math.max(1, Math.min(size, 1000));
         int offset = (safePage - 1) * safeSize;
-        Long total = jdbc.queryForObject("""
-            SELECT count(*)::bigint
-            FROM logs
-            WHERE user_id=? AND created_at >= extract(epoch from now())::bigint - 86400
-            """, Long.class, auth.get("user_id"));
+
+        StringBuilder where = new StringBuilder("WHERE l.user_id=?");
+        List<Object> args = new ArrayList<>();
+        args.add(auth.get("user_id"));
+
+        String safeModel = modelName == null ? "" : modelName.trim();
+        if (!safeModel.isBlank()) {
+            where.append(" AND l.model_name ILIKE ?");
+            args.add("%" + safeModel + "%");
+        }
+
+        String safeStatus = status == null ? "" : status.trim().toLowerCase(Locale.ROOT);
+        if ("error".equals(safeStatus)) {
+            where.append(" AND ").append(LOG_ERROR_CONDITION);
+        } else if ("success".equals(safeStatus)) {
+            where.append(" AND NOT ").append(LOG_ERROR_CONDITION);
+        }
+
+        if (startTime != null && startTime > 0) {
+            where.append(" AND l.created_at >= ?");
+            args.add(startTime);
+        } else {
+            where.append(" AND l.created_at >= extract(epoch from now())::bigint - 86400");
+        }
+        if (endTime != null && endTime > 0) {
+            where.append(" AND l.created_at <= ?");
+            args.add(endTime);
+        }
+
+        Long total = jdbc.queryForObject(
+            "SELECT count(*)::bigint FROM logs l " + where,
+            Long.class,
+            args.toArray()
+        );
+
+        List<Object> rowArgs = new ArrayList<>(args);
+        rowArgs.add(safeSize);
+        rowArgs.add(offset);
         List<Map<String, Object>> rows = jdbc.queryForList("""
-            SELECT id, request_id, model_name, type, prompt_tokens, completion_tokens, quota, use_time,
-                   is_stream, channel_name, token_id, token_name, content, other, to_timestamp(created_at) AS created_at
-            FROM logs
-            WHERE user_id=? AND created_at >= extract(epoch from now())::bigint - 86400
-            ORDER BY id DESC LIMIT ? OFFSET ?
-            """, auth.get("user_id"), safeSize, offset);
+            SELECT l.id, l.request_id, l.model_name, l.type, l.prompt_tokens, l.completion_tokens, l.quota, l.use_time,
+                   l.is_stream, l.channel_name, l.token_id, l.token_name, l.content, l.other,
+                   CASE WHEN %s THEN 'error' ELSE 'success' END AS request_status,
+                   %s AS status_code,
+                   %s AS error_message,
+                   %s AS error_type,
+                   %s AS error_code,
+                   to_timestamp(l.created_at) AS created_at
+            FROM logs l
+            %s
+            ORDER BY l.id DESC LIMIT ? OFFSET ?
+            """.formatted(LOG_ERROR_CONDITION, LOG_STATUS_CODE_SQL, LOG_ERROR_MESSAGE_SQL,
+                    LOG_ERROR_TYPE_SQL, LOG_ERROR_CODE_SQL, where), rowArgs.toArray());
         return ResponseEntity.ok(Map.of(
             "success", true,
             "data", Map.of(

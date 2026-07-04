@@ -17,6 +17,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
@@ -34,6 +35,20 @@ public class ProvisioningController {
     private static final SecureRandom RANDOM = new SecureRandom();
     private static final long TOKEN_PACK_SECONDS = 100L * 365 * 24 * 60 * 60;
     private static final String LOG_ERROR_CONDITION = "(COALESCE(l.content, '') ~ 'status_code=[45][0-9][0-9]' OR COALESCE(l.other, '') ILIKE '%\"error_code\"%' OR COALESCE(l.other, '') ILIKE '%\"error_type\"%')";
+    // HTTP status code: prefer the one embedded in content, fall back to the JSON in `other`.
+    private static final String LOG_STATUS_CODE_SQL =
+        "NULLIF(COALESCE(substring(l.content from 'status_code=([0-9]{3})'), " +
+        "substring(l.other from '\"status_code\"[[:space:]]*:[[:space:]]*([0-9]{3})')), '')";
+    // Human-readable error message: strip the `status_code=NNN,` prefix and trailing
+    // `(reset after ...)` / `(request id: ...)` noise from content.
+    private static final String LOG_ERROR_MESSAGE_SQL =
+        "NULLIF(regexp_replace(" +
+        "COALESCE(substring(l.content from 'status_code=[0-9]{3},[[:space:]]*(.*)$'), l.content, ''), " +
+        "'[[:space:]]*\\((reset after|request id)[^)]*\\)', '', 'g'), '')";
+    private static final String LOG_ERROR_TYPE_SQL =
+        "NULLIF(substring(l.other from '\"error_type\"[[:space:]]*:[[:space:]]*\"([^\"]+)\"'), '')";
+    private static final String LOG_ERROR_CODE_SQL =
+        "NULLIF(substring(l.other from '\"error_code\"[[:space:]]*:[[:space:]]*\"([^\"]+)\"'), '')";
     private final JdbcTemplate jdbc;
     private final AuthService authService;
     private final String newApiPublicBaseUrl;
@@ -323,8 +338,10 @@ public class ProvisioningController {
             "l.prompt_tokens, l.completion_tokens, l.quota, l.use_time, " +
             "l.is_stream, l.channel_name, l.token_id, l.token_name, l.content, l.other, " +
             "CASE WHEN " + LOG_ERROR_CONDITION + " THEN 'error' ELSE 'success' END AS request_status, " +
-            "NULLIF(substring(l.content from 'status_code=([0-9]{3})'), '') AS status_code, " +
-            "substring(l.content from 'status_code=[0-9]{3},[[:space:]]*([^()]+)') AS error_message, " +
+            LOG_STATUS_CODE_SQL + " AS status_code, " +
+            LOG_ERROR_MESSAGE_SQL + " AS error_message, " +
+            LOG_ERROR_TYPE_SQL + " AS error_type, " +
+            LOG_ERROR_CODE_SQL + " AS error_code, " +
             "to_timestamp(l.created_at) AS created_at " +
             "FROM logs l JOIN users u ON u.id = l.user_id " + where +
             " ORDER BY l.id DESC LIMIT ? OFFSET ?";
@@ -408,19 +425,168 @@ public class ProvisioningController {
         List<Map<String, Object>> byUser = jdbc.queryForList(
             "SELECT u.username AS username, u.id AS user_id, " +
             "       COUNT(*)::bigint AS req_count, " +
-            "       COALESCE(SUM(l.quota), 0)::bigint AS total_quota " +
+            "       COALESCE(SUM(l.quota), 0)::bigint AS total_quota, " +
+            "       SUM(CASE WHEN " + LOG_ERROR_CONDITION + " THEN 1 ELSE 0 END)::bigint AS error_count " +
             "FROM logs l JOIN users u ON u.id = l.user_id " + where + " " +
-            "GROUP BY u.username, u.id ORDER BY total_quota DESC LIMIT 10",
+            "GROUP BY u.username, u.id ORDER BY error_count DESC, total_quota DESC LIMIT 10",
             args.toArray());
+
+        // Error breakdown by HTTP status code parsed out of the log content.
+        // Rows without a parseable code fall into an 'other' bucket so the
+        // dashboard can still surface unclassified failures.
+        List<Object> errorArgs = new ArrayList<>(args);
+        List<Map<String, Object>> byErrorType = jdbc.queryForList(
+            "SELECT COALESCE(NULLIF(substring(l.content from 'status_code=([0-9]{3})'), ''), 'other') AS error_type, " +
+            "       COUNT(*)::bigint AS error_count " +
+            "FROM logs l JOIN users u ON u.id = l.user_id " + where +
+            " AND " + LOG_ERROR_CONDITION + " " +
+            "GROUP BY error_type ORDER BY error_count DESC LIMIT 20",
+            errorArgs.toArray());
 
         return ResponseEntity.ok(Map.of(
             "success", true,
             "data", Map.of(
                 "totals", totals,
                 "byModel", byModel,
-                "byUser", byUser
+                "byUser", byUser,
+                "byErrorType", byErrorType
             )
         ));
+    }
+
+    // ---- log retention config + admin log deletion ----
+
+    private static final String LOG_RETENTION_OPTION = "PortalLogRetentionDays";
+    // Allowed retention windows (days). 0 = keep forever (no auto-cleanup).
+    private static final java.util.Set<Long> ALLOWED_RETENTION_DAYS =
+        java.util.Set.of(0L, 7L, 30L, 90L, 180L, 365L);
+
+    private long currentRetentionDays() {
+        try {
+            List<Map<String, Object>> rows = jdbc.queryForList(
+                "SELECT value FROM options WHERE key=? LIMIT 1", LOG_RETENTION_OPTION);
+            if (rows.isEmpty()) return 0L;
+            long days = Long.parseLong(String.valueOf(rows.get(0).get("value")).trim());
+            return ALLOWED_RETENTION_DAYS.contains(days) ? days : 0L;
+        } catch (Exception ignored) {
+            return 0L;
+        }
+    }
+
+    @GetMapping("/logs/retention")
+    public ResponseEntity<?> getLogRetention(@RequestHeader(value = "Authorization", required = false) String authorization) {
+        authService.requireAdmin(authorization);
+        long days = currentRetentionDays();
+        return ResponseEntity.ok(Map.of("success", true, "data", Map.of(
+            "retentionDays", days,
+            "options", ALLOWED_RETENTION_DAYS.stream().sorted().toList()
+        )));
+    }
+
+    @PutMapping("/logs/retention")
+    public ResponseEntity<?> setLogRetention(
+            @RequestHeader(value = "Authorization", required = false) String authorization,
+            @RequestBody LogRetentionRequest request) {
+        authService.requireAdmin(authorization);
+        long days = request == null || request.retentionDays() == null ? 0L : request.retentionDays();
+        if (!ALLOWED_RETENTION_DAYS.contains(days)) {
+            throw new IllegalArgumentException("Invalid retention period");
+        }
+        jdbc.update("""
+            INSERT INTO options (key, value) VALUES (?, ?)
+            ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
+            """, LOG_RETENTION_OPTION, String.valueOf(days));
+        log.info("Log retention updated to {} days", days);
+        return ResponseEntity.ok(Map.of("success", true, "data", Map.of("retentionDays", days)));
+    }
+
+    public record LogRetentionRequest(Long retentionDays) {}
+
+    /**
+     * Delete logs. Supports the same filters as the log listing so an admin can
+     * prune noisy or old entries. If {@code olderThanDays} is given, only logs
+     * older than that many days are removed. At least one bounding filter must be
+     * present to avoid an accidental full-table wipe; pass {@code all=true} to
+     * delete every log.
+     */
+    @DeleteMapping("/logs")
+    @Transactional
+    public ResponseEntity<?> deleteLogs(
+            @RequestHeader(value = "Authorization", required = false) String authorization,
+            @RequestParam(value = "olderThanDays", required = false) Long olderThanDays,
+            @RequestParam(value = "userId", required = false) Long userId,
+            @RequestParam(value = "modelName", required = false) String modelName,
+            @RequestParam(value = "status", required = false) String status,
+            @RequestParam(value = "startTime", required = false) Long startTime,
+            @RequestParam(value = "endTime", required = false) Long endTime,
+            @RequestParam(value = "all", defaultValue = "false") boolean all) {
+        authService.requireAdmin(authorization);
+
+        StringBuilder where = new StringBuilder("WHERE 1=1");
+        List<Object> args = new ArrayList<>();
+        boolean hasBound = all;
+
+        if (olderThanDays != null && olderThanDays > 0) {
+            long cutoff = Instant.now().getEpochSecond() - olderThanDays * 24L * 60 * 60;
+            where.append(" AND l.created_at < ?");
+            args.add(cutoff);
+            hasBound = true;
+        }
+        if (userId != null && userId > 0) {
+            where.append(" AND l.user_id = ?");
+            args.add(userId);
+            hasBound = true;
+        }
+        String safeModel = modelName == null ? "" : modelName.trim();
+        if (!safeModel.isBlank()) {
+            where.append(" AND l.model_name ILIKE ?");
+            args.add("%" + safeModel + "%");
+            hasBound = true;
+        }
+        String safeStatus = status == null ? "" : status.trim().toLowerCase(Locale.ROOT);
+        if ("error".equals(safeStatus)) {
+            where.append(" AND ").append(LOG_ERROR_CONDITION);
+            hasBound = true;
+        } else if ("success".equals(safeStatus)) {
+            where.append(" AND NOT ").append(LOG_ERROR_CONDITION);
+            hasBound = true;
+        }
+        if (startTime != null && startTime > 0) {
+            where.append(" AND l.created_at >= ?");
+            args.add(startTime);
+            hasBound = true;
+        }
+        if (endTime != null && endTime > 0) {
+            where.append(" AND l.created_at <= ?");
+            args.add(endTime);
+            hasBound = true;
+        }
+
+        if (!hasBound) {
+            return ResponseEntity.badRequest().body(Map.of("success", false,
+                "message", "Refusing to delete all logs without a filter. Pass a filter or all=true."));
+        }
+
+        int deleted = jdbc.update("DELETE FROM logs l " + where, args.toArray());
+        log.info("Admin deleted {} log rows (filter: {})", deleted, where);
+        return ResponseEntity.ok(Map.of("success", true, "data", Map.of("deleted", deleted)));
+    }
+
+    /**
+     * Hourly cleanup that removes logs older than the configured retention window.
+     * Retention of 0 disables auto-cleanup.
+     */
+    @Scheduled(cron = "0 30 * * * *", zone = "${user.timezone:Asia/Ho_Chi_Minh}")
+    public void cleanupExpiredLogs() {
+        try {
+            long days = currentRetentionDays();
+            if (days <= 0) return;
+            long cutoff = Instant.now().getEpochSecond() - days * 24L * 60 * 60;
+            int deleted = jdbc.update("DELETE FROM logs WHERE created_at < ?", cutoff);
+            if (deleted > 0) log.info("Log retention cleanup: deleted {} rows older than {} days", deleted, days);
+        } catch (Exception e) {
+            log.error("Log retention cleanup failed", e);
+        }
     }
 
     @PostMapping("/provision-user")

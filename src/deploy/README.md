@@ -48,11 +48,26 @@ On the machine where you run deploy:
 Portal images must be built from this repo and pushed to a registry reachable by the server cluster.
 Portal images use `registry.inviv.vn/oneapi` by default.
 
-Current channel-credit deployment tag used during the VietAPI corn-unit update:
+Current portal deployment tag (admin logs error-message + full-message fix):
 
 ```txt
-registry.inviv.vn/oneapi/potal-backend:20260629-132157-vietapi-corn-amd64
-registry.inviv.vn/oneapi/potal-frontend:20260629-132157-vietapi-corn-amd64
+registry.inviv.vn/oneapi/potal-backend:20260704-174812-logerr-fullmsg-amd64
+registry.inviv.vn/oneapi/potal-frontend:20260704-174812-logerr-fullmsg-amd64
+```
+
+The local build machine is arm64, so production images must be built for `linux/amd64` via `docker buildx` and pushed directly:
+
+```bash
+cd /Users/thanhtq/Documents/project/1gpt/src
+TAG="$(date +%Y%m%d-%H%M%S)-amd64"
+for svc in backend frontend; do
+  docker buildx build --platform linux/amd64 \
+    -t registry.inviv.vn/oneapi/potal-$svc:$TAG --push ./potal/$svc
+done
+# then set newTag for potal-backend and potal-frontend in k8s/kustomization.yaml
+cd deploy && kubectl apply -k k8s
+kubectl -n oneapi rollout status deploy/potal-backend
+kubectl -n oneapi rollout status deploy/potal-frontend
 ```
 
 Generic build/push commands:
