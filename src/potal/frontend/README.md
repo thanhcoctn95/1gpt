@@ -1,6 +1,24 @@
-# 1API Frontend
+# 1API Portal Frontend
 
-Vue 3 + Vite frontend for the portal.
+Vue 3 + Vite single-page app for the 1API Portal. It ships two portals from one build:
+
+| Portal | Base path | Auth | Purpose |
+| --- | --- | --- | --- |
+| User | `/user` | New API key (Bearer) | Personal usage overview, model catalog, usage logs |
+| Admin | `/admin` | Admin token from `POST /api/admin/login` | User provisioning, model visibility, usage logs and retention |
+
+## Stack
+
+| Area | Choice |
+| --- | --- |
+| Framework | Vue 3 (`<script setup>`) + Vue Router |
+| Build | Vite 6, `vue-tsc` type-checked build |
+| Styling | Tailwind CSS v4 (`@tailwindcss/vite`), dark theme by default |
+| UI | shadcn-vue (new-york, neutral) components under `src/components/ui` |
+| Icons | `lucide-vue-next` and `@tabler/icons-vue` |
+| i18n | `vue-i18n`, Vietnamese (default) and English |
+| Data grid / charts | `@tanstack/vue-table`, `@unovis/vue` |
+| Toasts | `vue-sonner` |
 
 ## Run
 
@@ -12,97 +30,44 @@ npm run dev
 
 Default dev URL: <http://localhost:5173>
 
-The Vite dev server proxies `/api` to `http://localhost:8081` by default.
-Override with:
+The Vite dev server proxies `/api` to `http://localhost:8081` by default. Override with:
 
 ```bash
 PORTAL_BACKEND_URL=http://localhost:8081 npm run dev
 ```
 
-## Admin portal
+## Scripts
 
-Open `/admin` and sign in with a New API admin user. The admin shell currently includes:
-
-| Menu | Purpose |
+| Command | Action |
 | --- | --- |
-| Dashboard | High-level operational summary |
-| Người dùng | Provisioned user list, token copy, extra quota grant |
-| Gói | Subscription/token plan management |
-| Đồng bộ | Model visibility and routing gates |
-| Channels | New API upstream channel metadata and VietAPI credit/quota checks |
-| Usage Logs | User usage logs and model stats |
+| `npm run dev` | Start the dev server on `0.0.0.0:5173` |
+| `npm run build` | Type-check (`vue-tsc -b`) and build to `dist/` |
+| `npm run preview` | Preview the production build on `0.0.0.0:4173` |
+| `npm run typecheck` | Type-check without emitting |
 
+## Project layout
 
-## Clean-slate Astryx admin design contract
-
-The `/admin` portal is rebuilt as a Vue 3 + Vite adaptation of the official Astryx Themes guidance from `https://astryx.atmeta.com/themes`. The implementation uses scoped CSS tokens and Vue templates only: no React, StyleX, `@astryxdesign/*`, backend API, database, or generated `dist` changes are part of this contract.
-
-| Area | Contract |
+| Path | Contents |
 | --- | --- |
-| Theme source | Use Astryx Neutral token semantics: `--color-background-*`, `--color-text-*`, `--color-border*`, `--radius-*`, `--shadow-*`, `light-dark(...)`. |
-| App frame | Build one clean Pika-style admin dashboard frame: skip link, sticky global top bar, fixed side navigation rail, semantic main content, page header, status strip, framed page canvas, playground-style operations card, quick links, and mobile-safe overflow behavior. |
-| Navigation | Dashboard, Người dùng, Gói, Đồng bộ, Channels, and Usage Logs remain the only admin sections; active section uses `aria-current`. |
-| Content pages | Each page uses the same Astryx page pattern: section title, optional toolbar/filter row, primary data surface, loading skeleton, empty state, and status/error feedback. |
-| Accessibility | Preserve labels, captions, `aria-busy`, `role=status`, focus-visible states, skip-link navigation, dialog semantics, readable contrast, and reduced-motion behavior. |
-| Security | Keep all admin/user/channel/API tokens masked in browser UI; never reveal raw New API or VietAPI upstream keys. |
-| Integration | Preserve existing Vue state, API service calls, route behavior, and Kubernetes frontend-only deploy model. |
-| Non-goals | No dependency additions, React/StyleX integration, backend contract changes, database changes, or direct edits under `src/potal/frontend/dist`. |
+| `src/main.ts` | App bootstrap (router, i18n, global styles) |
+| `src/router/index.ts` | Routes and per-section auth guards |
+| `src/layouts/` | `UserLayout.vue`, `AdminLayout.vue` (sidebar + header shell) |
+| `src/views/user/` | User login, overview, models, logs |
+| `src/views/admin/` | Admin login, overview, users, models, logs |
+| `src/components/portal/` | Shared sidebar, header, and user menu |
+| `src/components/ui/` | shadcn-vue primitives |
+| `src/composables/useAuth.ts` | User key and admin session state (localStorage) |
+| `src/services/api.ts` | Typed client for the Spring backend (`/api/*`) |
+| `src/i18n/locales/` | `vi.ts` (default) and `en.ts` |
+| `src/lib/` | `format.ts` (key masking, formatting), `utils.ts` |
 
-Clean-slate acceptance checks for UI work:
+## Auth model
 
-| Screen | Required visible states |
-| --- | --- |
-| Admin login | Branded Astryx Neutral login card, labelled username/password fields, disabled/loading feedback, accessible status message. |
-| Dashboard | Pika-style overview hero, metric rows, playground operations card, quick-action list, quick links, top-user table, local status/time, and empty state. |
-| Người dùng | Toolbar/action, loading skeleton, table with masked token display, token/quota actions, empty state, modal validation/status messages. |
-| Gói | Toolbar/action, loading skeleton, plan table, create/edit modal, model picker empty state, validation/status messages. |
-| Đồng bộ | Loading skeleton, API error banner, model summary, empty state, accessible model toggle. |
-| Channels | Filter toolbar, loading/reload feedback, masked keys only, quota check status, edit form, empty state. |
-| Usage Logs | Filter toolbar, stats loading/empty states, paginated table, error/empty states. |
+- User portal authenticates with a New API key stored in `localStorage` (`potalUserApiKey`) and sent as a Bearer token.
+- Admin portal exchanges username/password at `POST /api/admin/login` for an admin token (`potalAdminToken`), with the admin profile cached in `potalAdminUser`.
+- Route guards in `router/index.ts` redirect unauthenticated visitors to the matching login screen.
+- All API keys and upstream tokens are masked in the UI via `maskKey` and are never rendered in raw form.
 
-Verification required before completion:
+## Deploy
 
-| Check | Command or evidence |
-| --- | --- |
-| Types | `cd src/potal/frontend && npm run typecheck` |
-| Build | `cd src/potal/frontend && npm run build` |
-| Dependencies | scan `package.json` for `react`, `react-dom`, and `@astryxdesign/*` additions; expected `[]`. |
-| Source markers | Search for clean shell/theme markers and obsolete legacy UI markers. |
-| Runtime smoke | Local `/admin` HTTP `200`; after deployment, public `https://1api.click/admin` HTTP `200`. |
-
-## Channels screen
-
-The `Channels` screen is integrated directly into the main `potal` admin UI, not the separate `new-api-user-portal` companion.
-
-Visible data:
-
-| Field | Display behavior |
-| --- | --- |
-| Channel ID/name/status | Read from New API `channels` table |
-| Upstream base URL/group | Editable safe metadata |
-| Upstream key | Masked only; raw key is never exposed to the browser |
-| Token count | Derived on the backend from single key, newline multi-key, or JSON-array multi-key storage |
-| Models | Editable comma-separated model list |
-| Routing | Weight and priority |
-| VietAPI quota | Shown in `🌽` units with raw value as secondary detail |
-
-Credit check display uses VietAPI portal semantics:
-
-| Label | Source API field | UI format |
-| --- | --- | --- |
-| Còn lại | `total_available` from backend, mapped from `data.usage.remain_quota` | `N 🌽` |
-| Đã dùng | `total_used` from backend, mapped from `data.usage.user_used_quota` | `N 🌽` |
-| Hạn ngày | `daily_cap` from backend, mapped from `data.usage.group_daily_cap` | `N 🌽` |
-| Hạn gói | `expire_time` from backend, mapped from `data.usage.user_quota_expire_time` | Localized date/time |
-
-Conversion:
-
-```txt
-1 🌽 = 1,000,000 raw quota
-```
-
-Security notes:
-
-- The browser never receives full VietAPI/New API keys.
-- The backend sanitizes credit check responses and returns only parsed quota fields plus masked token labels.
-- Editing a channel intentionally excludes secret key changes; update upstream keys in New API/admin DB using the normal operational procedure.
+Built as a static bundle served by nginx. See `Dockerfile` and the Kubernetes manifest `src/deploy/k8s/09-new-api-user-portal.yaml`. This is a frontend-only image; no backend, database, or generated `dist` sources are committed.

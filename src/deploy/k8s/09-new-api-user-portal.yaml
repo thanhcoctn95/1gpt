@@ -33,7 +33,7 @@ spec:
                   key: NEW_API_POSTGRES_DB
       containers:
         - name: new-api-user-portal
-          image: registry.inviv.vn/oneapi/potal-admin-fontend-new:20260701-183004-restore-mobile-log-table-amd64
+          image: registry.inviv.vn/oneapi/potal-frontend:20260704-131926-frontend-rebuild-amd64
           imagePullPolicy: Always
           ports:
             - name: http

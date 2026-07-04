@@ -103,6 +103,8 @@ spec:
                 configMapKeyRef:
                   name: oneapi-config
                   key: ERROR_LOG_ENABLED
+            - name: MEMORY_CACHE_ENABLED
+              value: "true"
             - name: BATCH_UPDATE_ENABLED
               valueFrom:
                 configMapKeyRef:
