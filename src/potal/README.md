@@ -49,7 +49,7 @@ The main portal admin screen is available at `/admin`. The `Channels` menu is in
 | --- | --- |
 | List channels | Shows ID, name, status, base URL, group, masked key, token count, model list, weight, priority, balance, and used quota. |
 | Edit safe metadata | Allows channel name, status, base URL, group, models, weight, and priority. It does not expose or edit secret upstream keys. |
-| VietAPI credit check | Calls VietAPI portal login endpoint per stored channel token and returns sanitized quota fields only. |
+| VietAPI quota check | Calls VietAPI portal login endpoint per stored channel token and returns sanitized quota fields only. This upstream check is separate from portal user token billing. |
 | Multi-token compatible | Supports current one-token-per-channel setup and future newline/JSON-array multi-key channels. |
 
 VietAPI quota is displayed in the same unit as the VietAPI portal:

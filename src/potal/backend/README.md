@@ -46,7 +46,7 @@ These endpoints power the `/admin` → `Channels` screen in the portal.
   - Updates safe channel metadata only: name, status, base URL, group, models, weight, priority.
   - Does not update or expose upstream secret keys.
 - `POST /api/admin/channels/{channelId}/credit`
-  - Checks upstream VietAPI account credit/quota by calling `https://vietapi.tech/api/portal/login` with the stored channel key.
+  - Checks upstream VietAPI account quota by calling `https://vietapi.tech/api/portal/login` with the stored channel key. This endpoint name is legacy; portal user billing remains token/quota based.
   - Supports single-token channels and future multi-token channels stored as newline-separated keys or JSON string arrays.
   - Aggregates successful token checks.
 

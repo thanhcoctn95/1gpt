@@ -2,19 +2,19 @@
 
 > **Tài liệu nội bộ — không public.** Không hiển thị hoặc nhắc tên nhà cung cấp upstream trên portal, landing page, dashboard, bảng giá công khai hay nội dung sales public. Khi cần mô tả nguồn model, chỉ dùng các cụm như **hạ tầng API**, **nguồn model đối tác**, hoặc **managed API layer**.
 
-> **Public branding rule:** mọi bề mặt người dùng của 1API (`src/potal/frontend`, `new_ui`, landing page, public dashboard/API response, screenshot/sales material) chỉ được hiển thị **token**, **token credit**, **internal cost**, hoặc **nguồn model**. Không đưa tên vendor/upstream, URL vendor, account pool, hay provider-specific credit ra ngoài. Tên nhà cung cấp chỉ được phép nằm trong docs nội bộ như file này hoặc artifact vận hành không public.
+> **Public branding rule:** mọi bề mặt người dùng của 1API (`src/potal/frontend`, `new_ui`, landing page, public dashboard/API response, screenshot/sales material) chỉ được hiển thị **token**, **internal cost**, hoặc **nguồn model**. Không đưa tên vendor/upstream, URL vendor, account pool, hay provider-specific quota/cost unit ra ngoài. Tên nhà cung cấp chỉ được phép nằm trong docs nội bộ như file này hoặc artifact vận hành không public.
 
 Tài liệu này là source of truth nội bộ cho bảng giá **1GPT / 1API GPT-5.5 API** dùng cho code, coding agent, automation và team nhỏ.
 
 ## Nguyên tắc chuẩn hoá
 
-- **Token credit user-facing:** là credit chuẩn hoá theo chi phí input của `gpt-5.5`; không còn đồng nghĩa 1:1 với raw token cho mọi model.
+- **Token user-facing:** số dư và usage hiển thị theo token/quota đã tính phí. Không dùng lớp quy đổi riêng trên portal.
 - **User quota:** trừ theo OpenAI-style input/output weighting để tối đa hoá lợi nhuận: `gpt-5.5`, `gpt-5.5-xhigh`, `opus-4.8`, `opus-4.8-thinking`, `claude-opus-4.8`, `claude-opus-4.8-thinking` input `1.2x`/output `6x`; `gpt-5.4` input `0.5x`/output `3x`; GLM giữ rate tiết kiệm hiện tại.
 - **Source/VietAPI cost:** chỉ dùng nội bộ để tính margin/profit; không quyết định trực tiếp số dư user bị trừ và không hiển thị public.
-- **Gói tháng:** token credit reset hằng ngày, không cộng dồn.
+- **Gói tháng:** token quota reset hằng ngày, không cộng dồn.
 - **Gói one-time:** mua một lần, dùng đến khi hết, không reset, không hết hạn trong thực tế vận hành.
 - **Giá hiển thị:** VND.
-- **Public UI/code:** không nhắc tên nhà cung cấp nguồn, upstream/vendor URL, account pool, hay provider-specific credit.
+- **Public UI/code:** không nhắc tên nhà cung cấp nguồn, upstream/vendor URL, account pool, hay provider-specific quota/cost unit.
 
 ---
 
@@ -31,14 +31,14 @@ Tài liệu này là source of truth nội bộ cho bảng giá **1GPT / 1API GP
 
 Chính sách mới: **tối đa hóa lợi nhuận bằng cách tính user theo bảng giá OpenAI API**, còn chi phí 1API trả cho nguồn model chỉ dùng để tính margin nội bộ.
 
-Không công khai tên nhà cung cấp, URL nhà cung cấp, account pool hoặc provider-specific credits trên các bề mặt user-facing.
+Không công khai tên nhà cung cấp, URL nhà cung cấp, account pool hoặc provider-specific quota/cost units trên các bề mặt user-facing.
 
-### Baseline token credit
+### Baseline billed token
 
 Baseline user-facing:
 
 ```text
-1 token credit = chi phí 1 input token gpt-5.5 theo OpenAI API standard short-context
+1 billed token/quota unit = đơn vị tính phí user-facing sau khi áp input/output multiplier
 ```
 
 Theo OpenAI API pricing đã kiểm tra ngày 2026-06-28:
@@ -55,14 +55,14 @@ User quota examples:
 ```text
 gpt-5.5 / gpt-5.5-xhigh
 prompt_tokens=1000, completion_tokens=500
-user_quota = 1000 * 1.2 + 500 * 6 = 4200 token credit
+user_quota = 1000 * 1.2 + 500 * 6 = 4200 billed token
 
 opus-4.8-thinking
 prompt_tokens=1000, completion_tokens=500
-user_quota = 1000 * 1.2 + 500 * 6 = 4200 token credit
+user_quota = 1000 * 1.2 + 500 * 6 = 4200 billed token
 
 gpt-5.4 prompt_tokens=1000, completion_tokens=500
-user_quota = 1000 * 0.5 + 500 * 3 = 2000 token credit
+user_quota = 1000 * 0.5 + 500 * 3 = 2000 billed token
 ```
 
 ### Profit accounting vs nguồn model cost
@@ -73,8 +73,8 @@ Nếu nguồn model thực tế tính raw token 1:1 cho `gpt-5.5*` và `opus-4.8
 
 ```text
 internal_cost_units ~= prompt_tokens + completion_tokens
-user_charged_credit = prompt_tokens * 1.2 + completion_tokens * 6  -- gpt-5.5*/Claude current hiện tại
-profit_spread_units = user_charged_credit - internal_cost_units
+user_charged_tokens = prompt_tokens * 1.2 + completion_tokens * 6  -- gpt-5.5*/Claude current hiện tại
+profit_spread_units = user_charged_tokens - internal_cost_units
 ```
 
 Ví dụ:
@@ -211,7 +211,7 @@ with usage as (
     model_name,
     sum(prompt_tokens)::numeric as prompt_tokens,
     sum(completion_tokens)::numeric as completion_tokens,
-    sum(quota)::numeric as user_charged_credit
+    sum(quota)::numeric as user_charged_tokens
   from logs
   where type = 2
     and quota > 0
@@ -222,7 +222,7 @@ with usage as (
     model_name,
     prompt_tokens,
     completion_tokens,
-    user_charged_credit,
+    user_charged_tokens,
     case
       when model_name like 'gpt-5.5%' then prompt_tokens * 1.2 + completion_tokens
       when model_name in ('opus-4.8','opus-4.8-thinking','claude-opus-4.8','claude-opus-4.8-thinking') then prompt_tokens * 1.2 + completion_tokens
@@ -237,10 +237,10 @@ select
   model_name,
   prompt_tokens,
   completion_tokens,
-  user_charged_credit,
+  user_charged_tokens,
   estimated_internal_cost_units,
-  user_charged_credit - estimated_internal_cost_units as estimated_spread_units,
-  round(user_charged_credit / nullif(estimated_internal_cost_units, 0), 4) as charge_to_cost_ratio
+  user_charged_tokens - estimated_internal_cost_units as estimated_spread_units,
+  round(user_charged_tokens / nullif(estimated_internal_cost_units, 0), 4) as charge_to_cost_ratio
 from rated
 order by estimated_spread_units desc;
 ```
@@ -251,20 +251,20 @@ Giả định vận hành hiện tại từ user:
 
 ```text
 VietAPI Mega = 1.200.000đ / tháng
-Dung lượng = 80 credit / ngày
-1 credit = 1.000.000 raw token
-Tháng 30 ngày = 2.400 credit = 2.4B raw token
-Cost nguồn = 1.200.000 / 2.400 = 500đ / 1M raw token
+Dung lượng = 80M raw token / ngày
+1 quota unit = 1 raw/billed token đơn vị hiển thị trong portal
+Tháng 30 ngày = 2.4B raw token capacity
+Cost nguồn = 1.200.000 / 2.400M = 500đ / 1M raw token
 ```
 
-Với các model đang tính input `1.2x`, output `6x`, số token credit bán ra trên cùng một raw-token capacity phụ thuộc tỷ lệ output:
+Với các model đang tính input `1.2x`, output `6x`, số billed token bán ra trên cùng một raw-token capacity phụ thuộc tỷ lệ output:
 
 ```text
 output_share = completion_tokens / (prompt_tokens + completion_tokens)
-effective_user_credit_per_raw_token = 1.2 + 4.8 * output_share
+effective_billed_token_per_raw_token = 1.2 + 4.8 * output_share
 ```
 
-| Output share | 80M raw token/ngày thành user credit/ngày | 2.4B raw token/tháng thành user credit/tháng |
+| Output share | 80M raw token/ngày thành billed token/ngày | 2.4B raw token/tháng thành billed token/tháng |
 | ------------: | ---------------------------------------: | -------------------------------------------: |
 | 0%            | 80M                                      | 2.4B                                        |
 | 10%           | 120M                                     | 3.6B                                        |
@@ -275,7 +275,7 @@ effective_user_credit_per_raw_token = 1.2 + 4.8 * output_share
 Rule of thumb nội bộ:
 
 ```text
-revenue = user_credit_sold_millions * package_price_per_1M_credit
+revenue = billed_tokens_sold_millions * package_price_per_1M_token
 source_cost = raw_tokens_used_millions * 500đ
 gross_profit = revenue - source_cost
 ```
@@ -283,11 +283,11 @@ gross_profit = revenue - source_cost
 Ví dụ safe capacity một gói Mega ở output share khoảng 33%:
 
 ```text
-4 Power    = 2.0B user credit
-6 Standard = 1.5B user credit
-6 Starter  = 0.6B user credit
-6 Mini     = 0.3B user credit
-Total sell = 4.4B user credit
+4 Power    = 2.0B billed token
+6 Standard = 1.5B billed token
+6 Starter  = 0.6B billed token
+6 Mini     = 0.3B billed token
+Total sell = 4.4B billed token
 Revenue   = 4*549K + 6*299K + 6*129K + 6*69K = 5.178M
 Cost      = 1.2M
 Gross profit ~= 3.978M / Mega / month
@@ -306,7 +306,7 @@ where key = 'billing_setting.billing_expr';
 
 ## 1. Gói tháng GPT-5.5 API
 
-| Gói 1API | Token credit/ngày | Token credit/tháng |          Giá | Giá / 1M token nếu dùng full |
+| Gói 1API | Token/ngày | Token/tháng |          Giá | Giá / 1M token nếu dùng full |
 | -------- | ---------: | ----------: | -----------: | ---------------------------: |
 | Plus     |   20M/ngày |  600M/tháng |   549K/tháng |                   ~915đ / 1M |
 | Pro      |   40M/ngày |  1.2B/tháng |   879K/tháng |                   ~733đ / 1M |
@@ -328,25 +328,25 @@ where key = 'billing_setting.billing_expr';
 #### 1API Plus
 
 - **Giá:** 549K/tháng
-- **Token credit:** 20M/ngày
+- **Token:** 20M/ngày
 - **Phù hợp:** cá nhân cần API GPT-5.5 để code, test tool, automation nhẹ.
 
 #### 1API Pro
 
 - **Giá:** 879K/tháng
-- **Token credit:** 40M/ngày
+- **Token:** 40M/ngày
 - **Phù hợp:** developer dùng coding agent thường xuyên, workflow code hằng ngày.
 
 #### 1API Ultra
 
 - **Giá:** 1.199K/tháng
-- **Token credit:** 60M/ngày
+- **Token:** 60M/ngày
 - **Phù hợp:** power user, freelancer, automation nặng hơn.
 
 #### 1API Max
 
 - **Giá:** 1.549K/tháng
-- **Token credit:** 80M/ngày
+- **Token:** 80M/ngày
 - **Phù hợp:** team nhỏ, nhiều API key phụ, agent chạy liên tục.
 
 ---
@@ -355,7 +355,7 @@ where key = 'billing_setting.billing_expr';
 
 Gói one-time phải đắt hơn giá hiệu dụng của gói tháng vì khách có thể dùng linh hoạt, không bị reset hằng ngày và không cần subscription đều.
 
-| Gói one-time | Token credit |  Giá | Giá / 1M token | Định vị                         |
+| Gói one-time | Token |  Giá | Giá / 1M token | Định vị                         |
 | ------------ | ----: | ---: | -------------: | ------------------------------- |
 | Mini         |   50M |  69K |   ~1.380đ / 1M | Test API / dùng ít              |
 | Starter      |  100M | 129K |   ~1.290đ / 1M | Cá nhân dùng nhẹ                |
@@ -428,7 +428,7 @@ Gói one-time = đắt hơn theo token, phù hợp dùng ít/không đều/khôn
 
 Câu chốt:
 
-> Nếu bạn cần API để code, chạy agent hoặc automation với token credit rõ ràng, dashboard usage và hỗ trợ tiếng Việt, chọn 1API.
+> Nếu bạn cần API để code, chạy agent hoặc automation với token rõ ràng, dashboard usage và hỗ trợ tiếng Việt, chọn 1API.
 
 ---
 

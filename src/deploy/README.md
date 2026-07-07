@@ -157,7 +157,7 @@ curl -i https://api.1api.click/api/health
 curl -i https://new.api.1api.click/v1/models
 ```
 
-After signing in as an admin at `/admin`, open `Channels` and run `Check credit` for a VietAPI channel. A successful check returns sanitized fields such as `total_available`, `total_used`, `daily_cap`, and `expire_time`; the UI displays them as VietAPI `🌽` units with `1 🌽 = 1,000,000` raw quota.
+After signing in as an admin at `/admin`, open `Channels` and run the VietAPI upstream quota check for a channel. A successful check returns sanitized fields such as `total_available`, `total_used`, `daily_cap`, and `expire_time`; the UI displays the same upstream quota units returned by VietAPI. This check is separate from portal user billing, which remains token/quota based.
 
 ## 5. External nginx routing
 
