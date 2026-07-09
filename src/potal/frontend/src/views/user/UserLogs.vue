@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { toast } from 'vue-sonner'
 import { IconChevronLeft, IconChevronRight, IconRefresh, IconSearch } from '@tabler/icons-vue'
@@ -19,7 +19,14 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { useAuth } from '@/composables/useAuth'
-import { getDashboardLogs, ApiError, type DashboardLogParams, type LogRow } from '@/services/api'
+import {
+  getDashboardLogs,
+  getDashboardLogModelStats,
+  ApiError,
+  type DashboardLogParams,
+  type LogModelStatRow,
+  type LogRow,
+} from '@/services/api'
 import { formatDateTime, formatNumber, isErrorLog } from '@/lib/format'
 
 const { t } = useI18n()
@@ -27,6 +34,7 @@ const { userApiKey } = useAuth()
 
 const loading = ref(true)
 const items = ref<LogRow[]>([])
+const modelStats = ref<LogModelStatRow[]>([])
 const page = ref(1)
 const size = ref(20)
 const total = ref(0)
@@ -36,6 +44,13 @@ const fromDate = ref('')
 const toDate = ref('')
 
 const totalPages = computed(() => Math.max(1, Math.ceil(total.value / size.value)))
+const modelChartRows = computed(() =>
+  modelStats.value.map((row) => ({
+    model: String(row.model_name || '—'),
+    count: Number(row.request_count ?? 0),
+  })),
+)
+const maxModelRequests = computed(() => Math.max(1, ...modelChartRows.value.map((row) => row.count)))
 
 function dateToUnixSeconds(value: string, endOfDay: boolean): number | undefined {
   if (!value) return undefined
@@ -55,19 +70,30 @@ function buildParams(): DashboardLogParams {
   }
 }
 
-async function load() {
-  loading.value = true
+let loadingRequest = false
+let refreshTimer: number | undefined
+
+async function load(showSkeleton = true) {
+  if (loadingRequest) return
+  loadingRequest = true
+  if (showSkeleton) loading.value = true
   try {
-    const res = await getDashboardLogs(userApiKey.value, buildParams())
-    items.value = res.items
-    total.value = res.total
-    page.value = res.page || page.value
-    size.value = res.size || size.value
+    const params = buildParams()
+    const [logsRes, statsRes] = await Promise.all([
+      getDashboardLogs(userApiKey.value, params),
+      getDashboardLogModelStats(userApiKey.value, params),
+    ])
+    items.value = logsRes.items
+    total.value = logsRes.total
+    page.value = logsRes.page || page.value
+    size.value = logsRes.size || size.value
+    modelStats.value = statsRes
   } catch (err) {
     const msg = err instanceof ApiError ? err.message : String(err)
     toast.error(t('common.error'), { description: msg })
   } finally {
     loading.value = false
+    loadingRequest = false
   }
 }
 
@@ -110,7 +136,14 @@ function errorDetail(row: LogRow): string {
   return parts.length > 0 ? parts.join(' · ') : '—'
 }
 
-onMounted(load)
+onMounted(() => {
+  void load(true)
+  refreshTimer = window.setInterval(() => void load(false), 10_000)
+})
+
+onBeforeUnmount(() => {
+  if (refreshTimer) window.clearInterval(refreshTimer)
+})
 </script>
 
 <template>
@@ -146,6 +179,37 @@ onMounted(load)
             </Button>
           </div>
         </form>
+      </CardContent>
+    </Card>
+
+    <Card>
+      <CardHeader>
+        <CardTitle class="text-base">{{ t('user.logs.modelRequests') }}</CardTitle>
+        <CardDescription>{{ t('user.logs.modelRequestsHint') }}</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div v-if="loading" class="flex flex-col gap-3">
+          <Skeleton v-for="i in 5" :key="i" class="h-8 w-full" />
+        </div>
+        <div v-else-if="!modelChartRows.length" class="py-6 text-center text-sm text-muted-foreground">
+          {{ t('common.noData') }}
+        </div>
+        <ul v-else class="flex flex-col gap-3">
+          <li v-for="row in modelChartRows" :key="row.model" class="grid gap-1">
+            <div class="flex items-center justify-between gap-3 text-sm">
+              <span class="truncate font-medium">{{ row.model }}</span>
+              <span class="tabular-nums text-muted-foreground">
+                {{ formatNumber(row.count) }} {{ t('user.overview.requests') }}
+              </span>
+            </div>
+            <div class="h-2.5 w-full overflow-hidden rounded-full bg-muted">
+              <div
+                class="h-full rounded-full bg-primary"
+                :style="{ width: `${Math.max(4, (row.count / maxModelRequests) * 100)}%` }"
+              />
+            </div>
+          </li>
+        </ul>
       </CardContent>
     </Card>
 

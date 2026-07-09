@@ -14,7 +14,7 @@ resources:
 images:
   - name: registry.inviv.vn/oneapi/potal-backend
     newName: registry.inviv.vn/oneapi/potal-backend
-    newTag: "20260704-174812-logerr-fullmsg-amd64"
+    newTag: "20260709-142734-logs-model-chart-amd64"
   - name: registry.inviv.vn/oneapi/potal-frontend
     newName: registry.inviv.vn/oneapi/potal-frontend
-    newTag: "20260704-174812-logerr-fullmsg-amd64"
+    newTag: "20260709-144446-remaining-tokens-amd64"

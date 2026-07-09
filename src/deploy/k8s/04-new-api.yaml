@@ -79,7 +79,7 @@ spec:
                 name: oneapi-secrets
       containers:
         - name: new-api
-          image: registry.inviv.vn/oneapi/new-api:latest
+          image: registry.inviv.vn/oneapi/new-api:20260709-115728-cancel-upstream-amd64
           imagePullPolicy: Always
           args:
             - --log-dir

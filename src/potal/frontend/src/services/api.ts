@@ -91,6 +91,11 @@ export type LogRow = Record<string, unknown> & {
   user_id?: number
 }
 
+export type LogModelStatRow = {
+  model_name: string
+  request_count: number
+}
+
 export type DashboardLogParams = {
   page?: number
   size?: number
@@ -280,6 +285,21 @@ export function getDashboardLogs(
   if (params.endTime) search.set('endTime', String(params.endTime))
   const query = search.toString()
   return request<Paginated<LogRow>>(`/api/dashboard/logs${query ? `?${query}` : ''}`, {
+    headers: authHeaders(apiKey),
+  })
+}
+
+export function getDashboardLogModelStats(
+  apiKey: string,
+  params: Omit<DashboardLogParams, 'page' | 'size'> = {},
+): Promise<LogModelStatRow[]> {
+  const search = new URLSearchParams()
+  if (params.modelName) search.set('modelName', params.modelName)
+  if (params.status) search.set('status', params.status)
+  if (params.startTime) search.set('startTime', String(params.startTime))
+  if (params.endTime) search.set('endTime', String(params.endTime))
+  const query = search.toString()
+  return request<LogModelStatRow[]>(`/api/dashboard/logs/model-stats${query ? `?${query}` : ''}`, {
     headers: authHeaders(apiKey),
   })
 }

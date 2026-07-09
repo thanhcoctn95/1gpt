@@ -34,16 +34,23 @@ public class ProvisioningController {
     private static final ZoneId RESET_ZONE = ZoneId.systemDefault();
     private static final SecureRandom RANDOM = new SecureRandom();
     private static final long TOKEN_PACK_SECONDS = 100L * 365 * 24 * 60 * 60;
-    private static final String LOG_ERROR_CONDITION = "(COALESCE(l.content, '') ~ 'status_code=[45][0-9][0-9]' OR COALESCE(l.other, '') ILIKE '%\"error_code\"%' OR COALESCE(l.other, '') ILIKE '%\"error_type\"%')";
+    // Errors surfaced by New API: HTTP 4xx/5xx in content, explicit error_code/error_type in `other`,
+    // or a streamed request that failed/was cancelled mid-flight (e.g. client_gone) where
+    // stream_status.status = "error". The latter has no HTTP status_code, so it must be matched here.
+    private static final String LOG_ERROR_CONDITION = "(COALESCE(l.content, '') ~ 'status_code=[45][0-9][0-9]' OR COALESCE(l.other, '') ILIKE '%\"error_code\"%' OR COALESCE(l.other, '') ILIKE '%\"error_type\"%' OR COALESCE(l.other, '') ~ '\"status\"[[:space:]]*:[[:space:]]*\"error\"')";
     // HTTP status code: prefer the one embedded in content, fall back to the JSON in `other`.
     private static final String LOG_STATUS_CODE_SQL =
         "NULLIF(COALESCE(substring(l.content from 'status_code=([0-9]{3})'), " +
         "substring(l.other from '\"status_code\"[[:space:]]*:[[:space:]]*([0-9]{3})')), '')";
     // Human-readable error message: strip the `status_code=NNN,` prefix and trailing
-    // `(reset after ...)` / `(request id: ...)` noise from content.
+    // `(reset after ...)` / `(request id: ...)` noise from content. When content is empty
+    // (e.g. a stream cancelled mid-flight), fall back to stream_status.end_error / end_reason.
     private static final String LOG_ERROR_MESSAGE_SQL =
         "NULLIF(regexp_replace(" +
-        "COALESCE(substring(l.content from 'status_code=[0-9]{3},[[:space:]]*(.*)$'), l.content, ''), " +
+        "COALESCE(NULLIF(substring(l.content from 'status_code=[0-9]{3},[[:space:]]*(.*)$'), ''), " +
+        "NULLIF(l.content, ''), " +
+        "substring(l.other from '\"end_error\"[[:space:]]*:[[:space:]]*\"([^\"]+)\"'), " +
+        "substring(l.other from '\"end_reason\"[[:space:]]*:[[:space:]]*\"([^\"]+)\"'), ''), " +
         "'[[:space:]]*\\((reset after|request id)[^)]*\\)', '', 'g'), '')";
     private static final String LOG_ERROR_TYPE_SQL =
         "NULLIF(substring(l.other from '\"error_type\"[[:space:]]*:[[:space:]]*\"([^\"]+)\"'), '')";
@@ -745,7 +752,7 @@ public class ProvisioningController {
         return jdbc.queryForObject("""
             INSERT INTO users
               (username, password, display_name, role, status, email, quota, used_quota, request_count, "group", aff_code, aff_count, aff_quota, aff_history, inviter_id, linux_do_id, setting, remark, stripe_customer, created_at, last_login_at)
-            VALUES (?, ?, ?, 1, 1, '', 0, 0, 0, 'default', ?, 0, 0, 0, 0, '', '', 'Provisioned by portal admin', '', ?, 0)
+            VALUES (?, ?, ?, 1, 1, '', 0, 0, 0, 'default', ?, 0, 0, 0, 0, '', '{"billing_preference":"subscription_only"}', 'Provisioned by portal admin', '', ?, 0)
             RETURNING id
             """, Long.class, username, randomPassword(), username, generateAffCode(), now);
     }

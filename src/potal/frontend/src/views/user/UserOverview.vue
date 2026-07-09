@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { toast } from 'vue-sonner'
 import {
@@ -27,9 +27,10 @@ import {
   type LogRow,
 } from '@/services/api'
 import {
-  formatQuotaUsd,
   formatVnd,
   formatNumber,
+  formatTokens,
+  formatDate,
   computeRefund,
 } from '@/lib/format'
 
@@ -47,7 +48,6 @@ const activeSub = computed<SubscriptionRow | null>(() => {
 })
 
 const requests24h = computed(() => Number(me.value?.stats24h?.request_24h ?? 0))
-const quota24h = computed(() => Number(me.value?.stats24h?.quota_24h ?? 0))
 
 const refund = computed(() =>
   computeRefund(Number(activeSub.value?.price_amount ?? 0), activeSub.value?.end_time),
@@ -92,8 +92,13 @@ function hourlyTooltip(hour: number, count: number): string {
   return `${hourLabel(hour)} · ${formatNumber(count)} ${t('user.overview.requests')}`
 }
 
-async function load() {
-  loading.value = true
+let loadingRequest = false
+let refreshTimer: number | undefined
+
+async function load(showSkeleton = true) {
+  if (loadingRequest) return
+  loadingRequest = true
+  if (showSkeleton) loading.value = true
   try {
     const [meRes, configRes, logsRes] = await Promise.all([
       getDashboardMe(userApiKey.value),
@@ -109,6 +114,7 @@ async function load() {
     toast.error(t('common.error'), { description: msg })
   } finally {
     loading.value = false
+    loadingRequest = false
   }
 }
 
@@ -122,7 +128,14 @@ async function copy(text: string) {
   }
 }
 
-onMounted(load)
+onMounted(() => {
+  void load(true)
+  refreshTimer = window.setInterval(() => void load(false), 10_000)
+})
+
+onBeforeUnmount(() => {
+  if (refreshTimer) window.clearInterval(refreshTimer)
+})
 </script>
 
 <template>
@@ -155,13 +168,12 @@ onMounted(load)
           </CardDescription>
           <CardTitle class="text-2xl tabular-nums">
             <template v-if="loading"><Skeleton class="h-7 w-24" /></template>
-            <template v-else>{{ formatQuotaUsd(quota24h) }}</template>
+            <template v-else>{{ activeSub ? formatTokens(activeSub.amount_left) : '—' }}</template>
           </CardTitle>
         </CardHeader>
         <CardContent class="text-sm text-muted-foreground">
           <template v-if="activeSub">
-            {{ formatQuotaUsd(activeSub.amount_used) }} {{ t('user.overview.quotaUsed') }} ·
-            {{ formatQuotaUsd(activeSub.amount_left) }} {{ t('user.overview.quotaLeft') }}
+            {{ formatTokens(activeSub.amount_used) }} {{ t('user.overview.quotaUsed') }}
           </template>
         </CardContent>
       </Card>
@@ -197,6 +209,7 @@ onMounted(load)
         </CardHeader>
         <CardContent class="text-sm text-muted-foreground">
           <div>{{ refund.daysLeft }} {{ t('user.overview.daysLeft') }}</div>
+          <div>{{ t('user.overview.expireAt') }}: {{ formatDate(activeSub?.end_time) }}</div>
           <div class="text-xs">{{ t('user.overview.refundHint') }}</div>
         </CardContent>
       </Card>

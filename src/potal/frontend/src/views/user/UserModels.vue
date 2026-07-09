@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { toast } from 'vue-sonner'
 import { IconInfoCircle, IconPlayerPlay, IconRefresh } from '@tabler/icons-vue'
@@ -76,8 +76,13 @@ const rows = computed(() =>
   }),
 )
 
-async function load() {
-  loading.value = true
+let loadingRequest = false
+let refreshTimer: number | undefined
+
+async function load(showSkeleton = true) {
+  if (loadingRequest) return
+  loadingRequest = true
+  if (showSkeleton) loading.value = true
   try {
     const [modelsRes, ratiosRes] = await Promise.all([
       getDashboardModels(userApiKey.value),
@@ -91,6 +96,7 @@ async function load() {
     toast.error(t('common.error'), { description: msg })
   } finally {
     loading.value = false
+    loadingRequest = false
   }
 }
 
@@ -152,7 +158,14 @@ async function runTest() {
   }
 }
 
-onMounted(load)
+onMounted(() => {
+  void load(true)
+  refreshTimer = window.setInterval(() => void load(false), 10_000)
+})
+
+onBeforeUnmount(() => {
+  if (refreshTimer) window.clearInterval(refreshTimer)
+})
 </script>
 
 <template>
