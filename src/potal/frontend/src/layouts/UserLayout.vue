@@ -2,7 +2,7 @@
 import { computed } from 'vue'
 import { useRouter, useRoute, RouterView } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { IconLayoutDashboard, IconCpu, IconListDetails } from '@tabler/icons-vue'
+import { IconLayoutDashboard, IconCpu, IconListDetails, IconPackage } from '@tabler/icons-vue'
 import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar'
 import PortalSidebar, { type NavItem } from '@/components/portal/PortalSidebar.vue'
 import PortalHeader from '@/components/portal/PortalHeader.vue'
@@ -17,6 +17,7 @@ const { userApiKey, logoutUser } = useAuth()
 const items = computed<NavItem[]>(() => [
   { title: t('user.nav.overview'), to: '/user/overview', icon: IconLayoutDashboard },
   { title: t('user.nav.models'), to: '/user/models', icon: IconCpu },
+  { title: t('user.nav.plans'), to: '/user/plans', icon: IconPackage },
   { title: t('user.nav.logs'), to: '/user/logs', icon: IconListDetails },
 ])
 

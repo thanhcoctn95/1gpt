@@ -110,12 +110,17 @@ public class DashboardController {
         //   key=ModelRatio      → {"model-name": ratio, ...}
         //   key=CompletionRatio → {"model-name": ratio, ...}
         //   key=GroupRatio      → {"group-name": ratio, ...}
+        // This fork bills via per-model expressions instead, stored under
+        //   key=billing_setting.billing_expr → {"model-name": "... p * X + c * Y ...", ...}
+        // When ModelRatio is empty we derive display rates from billing_expr so the
+        // portal always shows what New API actually charges.
         String modelRatioJson = "{}";
         String completionRatioJson = "{}";
         String groupRatioJson = "{}";
+        String billingExprJson = "{}";
         try {
             List<Map<String, Object>> opts = jdbc.queryForList(
-                "SELECT key, value FROM options WHERE key IN ('ModelRatio','CompletionRatio','GroupRatio')");
+                "SELECT key, value FROM options WHERE key IN ('ModelRatio','CompletionRatio','GroupRatio','billing_setting.billing_expr')");
             for (Map<String, Object> opt : opts) {
                 String key = String.valueOf(opt.get("key"));
                 String value = String.valueOf(opt.getOrDefault("value", "{}"));
@@ -123,6 +128,7 @@ public class DashboardController {
                     case "ModelRatio" -> modelRatioJson = value;
                     case "CompletionRatio" -> completionRatioJson = value;
                     case "GroupRatio" -> groupRatioJson = value;
+                    case "billing_setting.billing_expr" -> billingExprJson = value;
                 }
             }
         } catch (Exception ignored) {}
@@ -133,11 +139,33 @@ public class DashboardController {
         var groupRatioMap = parseJsonNumberMap(groupRatioJson);
 
         List<Map<String, Object>> modelRows = new java.util.ArrayList<>();
-        for (var entry : modelRatioMap.entrySet()) {
-            String modelName = entry.getKey();
-            double mr = entry.getValue();
-            double cr = completionRatioMap.getOrDefault(modelName, 1.0);
-            modelRows.add(Map.of("model_name", modelName, "model_ratio", mr, "completion_ratio", cr));
+        if (!modelRatioMap.isEmpty()) {
+            for (var entry : modelRatioMap.entrySet()) {
+                String modelName = entry.getKey();
+                double mr = entry.getValue();
+                double cr = completionRatioMap.getOrDefault(modelName, 1.0);
+                modelRows.add(Map.of("model_name", modelName, "model_ratio", mr, "completion_ratio", cr));
+            }
+        } else {
+            // Derive display rates from billing_expr. The billing engine computes
+            //   quota = expr(p, c) / 1_000_000 * 500_000 * groupRatio
+            // and the portal shows credit = quota / 1_000_000. With groupRatio = 1 this
+            // means credit per 1M input tokens = coeff_p * 0.5 and credit per 1M output
+            // tokens = coeff_c * 0.5. We surface those as model_ratio (input credit/1M)
+            // and completion_ratio (output/input multiplier) so the existing frontend math
+            // (creditInput = model_ratio, creditOutput = model_ratio * completion_ratio) holds.
+            var exprMap = parseJsonStringMap(billingExprJson);
+            for (var entry : exprMap.entrySet()) {
+                String modelName = entry.getKey();
+                double coeffP = extractCoefficient(entry.getValue(), 'p');
+                double coeffC = extractCoefficient(entry.getValue(), 'c');
+                if (coeffP <= 0 && coeffC <= 0) continue;
+                double creditIn = coeffP * BILLING_EXPR_CREDIT_FACTOR;
+                double creditOut = coeffC * BILLING_EXPR_CREDIT_FACTOR;
+                double modelRatio = creditIn;
+                double completionRatio = creditIn > 0 ? creditOut / creditIn : 1.0;
+                modelRows.add(Map.of("model_name", modelName, "model_ratio", modelRatio, "completion_ratio", completionRatio));
+            }
         }
         // Sort by model name
         modelRows.sort((a, b) -> String.valueOf(a.get("model_name")).compareTo(String.valueOf(b.get("model_name"))));
@@ -152,6 +180,39 @@ public class DashboardController {
             "models", modelRows,
             "groups", groupRows
         )));
+    }
+
+    // quota = expr(p,c) / 1_000_000 * 500_000 * groupRatio; credit = quota / 1_000_000.
+    // With groupRatio = 1: credit per 1M tokens = coefficient * (500_000 / 1_000_000) = coefficient * 0.5.
+    private static final double BILLING_EXPR_CREDIT_FACTOR = 500_000.0 / 1_000_000.0;
+
+    // Extract the numeric coefficient K from the first "<var> * K" term in a billing
+    // expression, e.g. extractCoefficient("... p * 2.4 + c * 12", 'p') -> 2.4.
+    // Returns 0 when the variable is absent (e.g. zero-output branch).
+    static double extractCoefficient(String expr, char variable) {
+        if (expr == null || expr.isBlank()) return 0.0;
+        java.util.regex.Matcher m = java.util.regex.Pattern
+            .compile("(?<![A-Za-z0-9_])" + variable + "\\s*\\*\\s*([0-9]+(?:\\.[0-9]+)?)")
+            .matcher(expr);
+        if (m.find()) {
+            try {
+                return Double.parseDouble(m.group(1));
+            } catch (NumberFormatException ignored) {}
+        }
+        return 0.0;
+    }
+
+    private static Map<String, String> parseJsonStringMap(String json) {
+        Map<String, String> result = new java.util.LinkedHashMap<>();
+        if (json == null || json.isBlank() || json.equals("{}")) return result;
+        try {
+            com.fasterxml.jackson.databind.JsonNode node =
+                new com.fasterxml.jackson.databind.ObjectMapper().readTree(json);
+            if (node != null && node.isObject()) {
+                node.fields().forEachRemaining(e -> result.put(e.getKey(), e.getValue().asText()));
+            }
+        } catch (Exception ignored) {}
+        return result;
     }
 
     private static Map<String, Double> parseJsonNumberMap(String json) {
@@ -250,7 +311,10 @@ public class DashboardController {
         LogFilter filter = buildLogFilter(auth.get("user_id"), modelName, status, startTime, endTime);
         List<Map<String, Object>> rows = jdbc.queryForList("""
             SELECT COALESCE(NULLIF(l.model_name, ''), '—') AS model_name,
-                   count(*)::bigint AS request_count
+                   count(*)::bigint AS request_count,
+                   COALESCE(sum(l.prompt_tokens), 0)::bigint AS tokens_in,
+                   COALESCE(sum(l.completion_tokens), 0)::bigint AS tokens_out,
+                   COALESCE(sum(l.prompt_tokens + l.completion_tokens), 0)::bigint AS tokens_total
             FROM logs l
             %s
             GROUP BY COALESCE(NULLIF(l.model_name, ''), '—')
@@ -258,6 +322,27 @@ public class DashboardController {
             LIMIT 12
             """.formatted(filter.whereSql()), filter.args().toArray());
         return ResponseEntity.ok(Map.of("success", true, "data", rows));
+    }
+
+    @GetMapping("/logs/status-stats")
+    public ResponseEntity<?> logStatusStats(
+        @RequestHeader(value = "Authorization", required = false) String authorization,
+        @RequestParam(value = "modelName", required = false) String modelName,
+        @RequestParam(value = "startTime", required = false) Long startTime,
+        @RequestParam(value = "endTime", required = false) Long endTime
+    ) {
+        Map<String, Object> auth = authService.requireUser(authorization);
+        // Ignore the status filter here so the success/error breakdown is always meaningful.
+        LogFilter filter = buildLogFilter(auth.get("user_id"), modelName, null, startTime, endTime);
+        Map<String, Object> row = jdbc.queryForMap(("""
+            SELECT count(*)::bigint AS total,
+                   SUM(CASE WHEN %s THEN 1 ELSE 0 END)::bigint AS error_count,
+                   SUM(CASE WHEN %s THEN 0 ELSE 1 END)::bigint AS success_count
+            FROM logs l
+            %s
+            """).formatted(LOG_ERROR_CONDITION, LOG_ERROR_CONDITION, filter.whereSql()),
+            filter.args().toArray());
+        return ResponseEntity.ok(Map.of("success", true, "data", row));
     }
 
     private LogFilter buildLogFilter(Object userId, String modelName, String status, Long startTime, Long endTime) {

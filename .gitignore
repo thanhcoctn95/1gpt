@@ -26,8 +26,20 @@ build/
 .idea/
 .gradle/
 **/.gradle/
+.classpath
+.project
+.settings/
+**/.settings/
+bin/
+**/bin/main/
+*.class
 
 # Local backups and database dumps
 backups/
 *.dump
 *.dump.list
+.pi/tasks/tasks-*.json
+.fallow/
+.pi/artifacts/
+.pi/task-registry.json
+.pi/task-session-history.json

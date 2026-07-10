@@ -22,12 +22,14 @@ import { useAuth } from '@/composables/useAuth'
 import {
   getDashboardLogs,
   getDashboardLogModelStats,
+  getDashboardLogStatusStats,
   ApiError,
   type DashboardLogParams,
   type LogModelStatRow,
+  type LogStatusStat,
   type LogRow,
 } from '@/services/api'
-import { formatDateTime, formatNumber, isErrorLog } from '@/lib/format'
+import { formatDateTime, formatNumber, formatCredit, isErrorLog, todayISODate } from '@/lib/format'
 
 const { t } = useI18n()
 const { userApiKey } = useAuth()
@@ -35,22 +37,42 @@ const { userApiKey } = useAuth()
 const loading = ref(true)
 const items = ref<LogRow[]>([])
 const modelStats = ref<LogModelStatRow[]>([])
+const statusStats = ref<LogStatusStat | null>(null)
 const page = ref(1)
 const size = ref(20)
 const total = ref(0)
 const modelFilter = ref('')
 const statusFilter = ref<'all' | 'success' | 'error'>('all')
-const fromDate = ref('')
-const toDate = ref('')
+const fromDate = ref(todayISODate())
+const toDate = ref(todayISODate())
 
 const totalPages = computed(() => Math.max(1, Math.ceil(total.value / size.value)))
 const modelChartRows = computed(() =>
   modelStats.value.map((row) => ({
     model: String(row.model_name || '—'),
     count: Number(row.request_count ?? 0),
+    tokens: Number(row.tokens_total ?? 0),
   })),
 )
 const maxModelRequests = computed(() => Math.max(1, ...modelChartRows.value.map((row) => row.count)))
+
+const statusBreakdown = computed(() => {
+  const success = Number(statusStats.value?.success_count ?? 0)
+  const error = Number(statusStats.value?.error_count ?? 0)
+  const total = Number(statusStats.value?.total ?? success + error)
+  const denom = total > 0 ? total : 1
+  const successPct = (success / denom) * 100
+  const errorPct = (error / denom) * 100
+  return {
+    success,
+    error,
+    total,
+    successPct,
+    errorPct,
+    // Conic gradient stop for the donut: green up to successPct, red after.
+    gradient: `conic-gradient(rgb(34 197 94) 0% ${successPct}%, rgb(239 68 68) ${successPct}% 100%)`,
+  }
+})
 
 function dateToUnixSeconds(value: string, endOfDay: boolean): number | undefined {
   if (!value) return undefined
@@ -79,15 +101,21 @@ async function load(showSkeleton = true) {
   if (showSkeleton) loading.value = true
   try {
     const params = buildParams()
-    const [logsRes, statsRes] = await Promise.all([
+    const [logsRes, statsRes, statusRes] = await Promise.all([
       getDashboardLogs(userApiKey.value, params),
       getDashboardLogModelStats(userApiKey.value, params),
+      getDashboardLogStatusStats(userApiKey.value, {
+        modelName: params.modelName,
+        startTime: params.startTime,
+        endTime: params.endTime,
+      }),
     ])
     items.value = logsRes.items
     total.value = logsRes.total
     page.value = logsRes.page || page.value
     size.value = logsRes.size || size.value
     modelStats.value = statsRes
+    statusStats.value = statusRes
   } catch (err) {
     const msg = err instanceof ApiError ? err.message : String(err)
     toast.error(t('common.error'), { description: msg })
@@ -105,8 +133,8 @@ function applyFilters() {
 function resetFilters() {
   modelFilter.value = ''
   statusFilter.value = 'all'
-  fromDate.value = ''
-  toDate.value = ''
+  fromDate.value = todayISODate()
+  toDate.value = todayISODate()
   page.value = 1
   load()
 }
@@ -184,32 +212,92 @@ onBeforeUnmount(() => {
 
     <Card>
       <CardHeader>
-        <CardTitle class="text-base">{{ t('user.logs.modelRequests') }}</CardTitle>
-        <CardDescription>{{ t('user.logs.modelRequestsHint') }}</CardDescription>
+        <CardTitle class="text-base">{{ t('user.logs.statsTitle') }}</CardTitle>
+        <CardDescription>{{ t('user.logs.statsHint') }}</CardDescription>
       </CardHeader>
       <CardContent>
-        <div v-if="loading" class="flex flex-col gap-3">
-          <Skeleton v-for="i in 5" :key="i" class="h-8 w-full" />
-        </div>
-        <div v-else-if="!modelChartRows.length" class="py-6 text-center text-sm text-muted-foreground">
-          {{ t('common.noData') }}
-        </div>
-        <ul v-else class="flex flex-col gap-3">
-          <li v-for="row in modelChartRows" :key="row.model" class="grid gap-1">
-            <div class="flex items-center justify-between gap-3 text-sm">
-              <span class="truncate font-medium">{{ row.model }}</span>
-              <span class="tabular-nums text-muted-foreground">
-                {{ formatNumber(row.count) }} {{ t('user.overview.requests') }}
-              </span>
+        <div class="grid gap-8 lg:grid-cols-2">
+          <!-- Success / error rate -->
+          <div class="flex flex-col gap-3">
+            <h3 class="text-sm font-medium">{{ t('user.logs.statusChart') }}</h3>
+            <div v-if="loading" class="flex items-center gap-6">
+              <Skeleton class="size-32 rounded-full" />
+              <div class="flex flex-1 flex-col gap-3">
+                <Skeleton class="h-6 w-full" />
+                <Skeleton class="h-6 w-full" />
+              </div>
             </div>
-            <div class="h-2.5 w-full overflow-hidden rounded-full bg-muted">
+            <div v-else-if="!statusBreakdown.total" class="py-6 text-center text-sm text-muted-foreground">
+              {{ t('common.noData') }}
+            </div>
+            <div v-else class="flex flex-col items-center gap-6 sm:flex-row sm:gap-8">
               <div
-                class="h-full rounded-full bg-primary"
-                :style="{ width: `${Math.max(4, (row.count / maxModelRequests) * 100)}%` }"
-              />
+                class="relative size-32 shrink-0 rounded-full"
+                :style="{ background: statusBreakdown.gradient }"
+                role="img"
+                :aria-label="`${t('user.logs.statusSuccess')} ${statusBreakdown.successPct.toFixed(1)}%, ${t('user.logs.statusError')} ${statusBreakdown.errorPct.toFixed(1)}%`"
+              >
+                <div class="absolute inset-[22%] flex flex-col items-center justify-center rounded-full bg-background">
+                  <span class="text-lg font-semibold tabular-nums">{{ statusBreakdown.successPct.toFixed(0) }}%</span>
+                  <span class="text-xs text-muted-foreground">{{ t('user.logs.statusSuccess') }}</span>
+                </div>
+              </div>
+              <ul class="flex flex-1 flex-col gap-3 text-sm">
+                <li class="flex items-center justify-between gap-3">
+                  <span class="flex items-center gap-2">
+                    <span class="size-3 rounded-full" style="background: rgb(34 197 94)" />
+                    {{ t('user.logs.statusSuccess') }}
+                  </span>
+                  <span class="tabular-nums text-muted-foreground">
+                    {{ formatNumber(statusBreakdown.success) }} ({{ statusBreakdown.successPct.toFixed(1) }}%)
+                  </span>
+                </li>
+                <li class="flex items-center justify-between gap-3">
+                  <span class="flex items-center gap-2">
+                    <span class="size-3 rounded-full" style="background: rgb(239 68 68)" />
+                    {{ t('user.logs.statusError') }}
+                  </span>
+                  <span class="tabular-nums text-muted-foreground">
+                    {{ formatNumber(statusBreakdown.error) }} ({{ statusBreakdown.errorPct.toFixed(1) }}%)
+                  </span>
+                </li>
+                <li class="flex items-center justify-between gap-3 border-t pt-2">
+                  <span class="font-medium">{{ t('common.total') }}</span>
+                  <span class="tabular-nums">{{ formatNumber(statusBreakdown.total) }}</span>
+                </li>
+              </ul>
             </div>
-          </li>
-        </ul>
+          </div>
+
+          <!-- Requests / tokens by model -->
+          <div class="flex flex-col gap-3">
+            <h3 class="text-sm font-medium">{{ t('user.logs.modelRequests') }}</h3>
+            <div v-if="loading" class="flex flex-col gap-3">
+              <Skeleton v-for="i in 5" :key="i" class="h-8 w-full" />
+            </div>
+            <div v-else-if="!modelChartRows.length" class="py-6 text-center text-sm text-muted-foreground">
+              {{ t('common.noData') }}
+            </div>
+            <ul v-else class="flex flex-col gap-3">
+              <li v-for="row in modelChartRows" :key="row.model" class="grid gap-1">
+                <div class="flex items-center justify-between gap-3 text-sm">
+                  <span class="truncate font-medium">{{ row.model }}</span>
+                  <span class="tabular-nums text-muted-foreground">
+                    {{ formatNumber(row.count) }} {{ t('user.overview.requests') }}
+                    <span class="mx-1">·</span>
+                    {{ formatNumber(row.tokens) }} {{ t('user.logs.tokensLabel') }}
+                  </span>
+                </div>
+                <div class="h-2.5 w-full overflow-hidden rounded-full bg-muted">
+                  <div
+                    class="h-full rounded-full bg-primary"
+                    :style="{ width: `${Math.max(4, (row.count / maxModelRequests) * 100)}%` }"
+                  />
+                </div>
+              </li>
+            </ul>
+          </div>
+        </div>
       </CardContent>
     </Card>
 
@@ -230,13 +318,15 @@ onBeforeUnmount(() => {
                 <TableHead>{{ t('user.logs.model') }}</TableHead>
                 <TableHead class="text-right">{{ t('user.logs.tokensIn') }}</TableHead>
                 <TableHead class="text-right">{{ t('user.logs.tokensOut') }}</TableHead>
+                <TableHead class="text-right">{{ t('user.logs.convertedTokens') }}</TableHead>
+                <TableHead class="text-right">{{ t('user.logs.cost') }}</TableHead>
                 <TableHead class="text-right">{{ t('user.logs.responseTime') }}</TableHead>
                 <TableHead>{{ t('user.logs.channel') }}</TableHead>
                 <TableHead>{{ t('common.status') }}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              <TableEmpty v-if="!items.length" :colspan="7">{{ t('common.noData') }}</TableEmpty>
+              <TableEmpty v-if="!items.length" :colspan="9">{{ t('common.noData') }}</TableEmpty>
               <TableRow v-for="row in items" :key="String(row.id)">
                 <TableCell class="whitespace-nowrap text-muted-foreground">
                   {{ formatDateTime(row.created_at) }}
@@ -244,6 +334,8 @@ onBeforeUnmount(() => {
                 <TableCell class="font-medium">{{ row.model_name || '—' }}</TableCell>
                 <TableCell class="text-right tabular-nums">{{ formatNumber(row.prompt_tokens) }}</TableCell>
                 <TableCell class="text-right tabular-nums">{{ formatNumber(row.completion_tokens) }}</TableCell>
+                <TableCell class="text-right tabular-nums">{{ formatNumber(row.quota) }}</TableCell>
+                <TableCell class="text-right tabular-nums">{{ formatCredit(row.quota) }}</TableCell>
                 <TableCell class="text-right tabular-nums">{{ responseTime(row.use_time) }}</TableCell>
                 <TableCell class="text-muted-foreground">{{ row.channel_name || '—' }}</TableCell>
                 <TableCell>

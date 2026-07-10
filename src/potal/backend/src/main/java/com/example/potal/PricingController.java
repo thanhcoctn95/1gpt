@@ -113,10 +113,10 @@ public class PricingController {
     private record PricingPlan(String code, String title, String subtitle, double priceAmount, long dailyQuota, int sortOrder, String upgradeGroup) {
         static List<PricingPlan> all() {
             return List.of(
-                new PricingPlan("plus", "Plus", "20M token GPT-5.5/ngày", 549_000, 20_000_000, 10, ""),
-                new PricingPlan("pro", "Pro", "40M token GPT-5.5/ngày", 879_000, 40_000_000, 20, ""),
-                new PricingPlan("ultra", "Ultra", "60M token GPT-5.5/ngày", 1_199_000, 60_000_000, 30, ""),
-                new PricingPlan("max", "Max", "80M token GPT-5.5/ngày", 1_549_000, 80_000_000, 40, "max")
+                new PricingPlan("plus", "Plus", "20 credit GPT-5.5/ngày", 549_000, 20_000_000, 10, ""),
+                new PricingPlan("pro", "Pro", "40 credit GPT-5.5/ngày", 879_000, 40_000_000, 20, ""),
+                new PricingPlan("ultra", "Ultra", "60 credit GPT-5.5/ngày", 1_199_000, 60_000_000, 30, ""),
+                new PricingPlan("max", "Max", "80 credit GPT-5.5/ngày", 1_549_000, 80_000_000, 40, "max")
             );
         }
 

@@ -10,7 +10,7 @@ import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Table, TableBody, TableCell, TableEmpty, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { useAuth } from '@/composables/useAuth'
-import { formatNumber, formatTokens } from '@/lib/format'
+import { formatNumber, formatCredit } from '@/lib/format'
 import { ApiError, getAdminLogsStats } from '@/services/api'
 import type { AdminLogStatsResponse } from '@/services/api'
 
@@ -143,7 +143,7 @@ onMounted(fetchStats)
         </CardHeader>
         <CardContent>
           <Skeleton v-if="loading" class="h-8 w-24" />
-          <div v-else class="text-2xl font-semibold tabular-nums">{{ formatTokens(totals?.total_quota) }}</div>
+          <div v-else class="text-2xl font-semibold tabular-nums">{{ formatCredit(totals?.total_quota) }}</div>
         </CardContent>
       </Card>
 
@@ -304,7 +304,7 @@ onMounted(fetchStats)
               <TableRow v-for="model in topModels" v-else :key="model.model">
                 <TableCell class="font-medium">{{ model.model }}</TableCell>
                 <TableCell class="text-right tabular-nums">{{ formatNumber(model.req_count) }}</TableCell>
-                <TableCell class="text-right tabular-nums">{{ formatTokens(model.total_quota) }}</TableCell>
+                <TableCell class="text-right tabular-nums">{{ formatCredit(model.total_quota) }}</TableCell>
                 <TableCell class="text-right">
                   <Badge :variant="model.error_count > 0 ? 'destructive' : 'secondary'">
                     {{ formatNumber(model.error_count) }}
@@ -344,7 +344,7 @@ onMounted(fetchStats)
               <TableRow v-for="user in topUsers" v-else :key="user.user_id">
                 <TableCell class="font-medium">{{ user.username }}</TableCell>
                 <TableCell class="text-right tabular-nums">{{ formatNumber(user.req_count) }}</TableCell>
-                <TableCell class="text-right tabular-nums">{{ formatTokens(user.total_quota) }}</TableCell>
+                <TableCell class="text-right tabular-nums">{{ formatCredit(user.total_quota) }}</TableCell>
               </TableRow>
             </TableBody>
           </Table>

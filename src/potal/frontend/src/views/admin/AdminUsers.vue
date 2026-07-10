@@ -21,7 +21,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Skeleton } from '@/components/ui/skeleton'
 import { Table, TableBody, TableCell, TableEmpty, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { useAuth } from '@/composables/useAuth'
-import { formatDate, formatTokens } from '@/lib/format'
+import { formatDate, formatCredit, QUOTA_PER_CREDIT } from '@/lib/format'
 import { ApiError, getAdminPlans, getProvisionedUsers, getUserToken, grantTokens, provisionUser } from '@/services/api'
 import type { AdminPlanRow, ProvisionedUserRow } from '@/services/api'
 
@@ -122,10 +122,12 @@ async function submitGrant() {
   if (!canGrant.value || !grantUser.value) return
   granting.value = true
   const user = grantUser.value
-  const amount = Math.floor(Number(grantAmount.value))
+  // Admin enters a credit amount; the backend grants raw quota units.
+  const credit = Number(grantAmount.value)
+  const amount = Math.round(credit * QUOTA_PER_CREDIT)
   try {
     await grantTokens(adminToken.value, { userId: user.user_id, amount })
-    toast.success(t('admin.users.grantSuccess', { amount: amount.toLocaleString('en-US'), name: user.username }))
+    toast.success(t('admin.users.grantSuccess', { amount: credit.toLocaleString('en-US'), name: user.username }))
     grantDialogOpen.value = false
     grantAmount.value = ''
     await fetchUsers()
@@ -182,7 +184,7 @@ onMounted(async () => {
                     <SelectItem v-for="plan in plans" :key="plan.id" :value="String(plan.id)">
                       <div class="flex flex-col">
                         <span>{{ plan.title }}</span>
-                        <span class="text-xs text-muted-foreground">{{ formatTokens(plan.total_amount) }} · {{ plan.quota_reset_period || '—' }}</span>
+                        <span class="text-xs text-muted-foreground">{{ formatCredit(plan.total_amount) }} · {{ plan.quota_reset_period || '—' }}</span>
                       </div>
                     </SelectItem>
                   </SelectContent>
@@ -241,9 +243,9 @@ onMounted(async () => {
               <TableCell>
                 <Badge variant="secondary">{{ user.plan_title || '—' }}</Badge>
               </TableCell>
-              <TableCell class="text-right tabular-nums">{{ formatTokens(user.amount_total) }}</TableCell>
-              <TableCell class="text-right tabular-nums">{{ formatTokens(user.amount_used) }}</TableCell>
-              <TableCell class="text-right tabular-nums">{{ formatTokens(user.amount_left) }}</TableCell>
+              <TableCell class="text-right tabular-nums">{{ formatCredit(user.amount_total) }}</TableCell>
+              <TableCell class="text-right tabular-nums">{{ formatCredit(user.amount_used) }}</TableCell>
+              <TableCell class="text-right tabular-nums">{{ formatCredit(user.amount_left) }}</TableCell>
               <TableCell class="font-mono text-xs text-muted-foreground">{{ user.key_masked || '—' }}</TableCell>
               <TableCell>{{ user.quota_reset_period || '—' }}</TableCell>
               <TableCell>{{ formatDate(user.end_time) }}</TableCell>
@@ -279,9 +281,9 @@ onMounted(async () => {
               id="admin-grant-amount"
               v-model="grantAmount"
               type="number"
-              min="1"
-              step="1"
-              inputmode="numeric"
+              min="0"
+              step="0.01"
+              inputmode="decimal"
               autocomplete="off"
             />
           </div>

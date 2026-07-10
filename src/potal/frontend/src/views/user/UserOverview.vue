@@ -29,7 +29,7 @@ import {
 import {
   formatVnd,
   formatNumber,
-  formatTokens,
+  formatCredit,
   formatDate,
   computeRefund,
 } from '@/lib/format'
@@ -160,7 +160,7 @@ onBeforeUnmount(() => {
         </CardContent>
       </Card>
 
-      <!-- Token credit today -->
+      <!-- Remaining credit today -->
       <Card>
         <CardHeader>
           <CardDescription class="flex items-center gap-2">
@@ -168,12 +168,12 @@ onBeforeUnmount(() => {
           </CardDescription>
           <CardTitle class="text-2xl tabular-nums">
             <template v-if="loading"><Skeleton class="h-7 w-24" /></template>
-            <template v-else>{{ activeSub ? formatTokens(activeSub.amount_left) : '—' }}</template>
+            <template v-else>{{ activeSub ? formatCredit(activeSub.amount_left) : '—' }}</template>
           </CardTitle>
         </CardHeader>
         <CardContent class="text-sm text-muted-foreground">
           <template v-if="activeSub">
-            {{ formatTokens(activeSub.amount_used) }} {{ t('user.overview.quotaUsed') }}
+            {{ formatCredit(activeSub.amount_used) }} {{ t('user.overview.quotaUsed') }}
           </template>
         </CardContent>
       </Card>

@@ -18,6 +18,49 @@ Tài liệu này là source of truth nội bộ cho bảng giá **1GPT / 1API GP
 
 ---
 
+## Đơn vị hiển thị: CREDIT (cập nhật 2026-07-09)
+
+Từ 2026-07-09, mọi bề mặt user/admin của portal hiển thị chi phí theo **credit** thay cho "token". Đây là lớp hiển thị suy ra trực tiếp từ quota nội bộ, **không** thay đổi engine metering của New API.
+
+### Định nghĩa
+
+```text
+1 credit = 1.000.000 quota units nội bộ
+```
+
+Quota units là đơn vị New API thực trừ (ghi vào `logs.quota` và `user_subscriptions.amount_*`). Vì `gpt-5.5` input có ratio `1.0` (1 token input = 1 quota unit), 1 credit tương đương chi phí của **1M token input gpt-5.5** — khớp cách gọi "1.0 cr/1M token" trên web pricing.
+
+### Quy đổi
+
+- Số dư / usage hiển thị: `credit = quota / 1.000.000`. Ví dụ gói `20.000.000` quota → `20 credit`.
+- Credit/1M token của mỗi model = `model_ratio` (input) và `model_ratio × completion_ratio` (output). Bảng tham chiếu web pricing:
+
+| Nhóm | Model | credit / 1M token |
+| --- | --- | ---: |
+| Rẻ | `deepseek-v4-flash` | `0.1` |
+| Rẻ | `glm-5.1`, `kimi-k2.6` | `0.25` |
+| Rẻ | `deepseek-v4-pro`, `glm-5.2`, `kimi-2.7`, `grok-4.5` | `0.5` |
+| Rẻ | `grok-4.3` | `0.6` |
+| TOP | `gpt-5.5`, `gpt-5.5-high`, `gpt-5.5-xhigh` | `1.0` |
+| TOP | `claude-sonnet-5` | `0.5` |
+| TOP | `claude-opus-4.6/4.7/4.8` (+thinking), KIRO | `1.0` |
+
+### Lưu ý về input/output weighting
+
+Bảng credit/1M ở trên là **rate tham chiếu (chuẩn theo input)**. Các model premium (`gpt-5.5`, `opus-4.8`) hiện vẫn trừ output nặng hơn input (`p * 1.2 + c * 6` ở tầng `billing_expr`), nên credit output thực tế cao hơn credit input. Việc "phẳng hoá" output về đúng 1.0 cr/1M cho cả input lẫn output là **thay đổi doanh thu lớn** và chỉ áp dụng qua migration riêng khi được duyệt (xem `src/deploy/migration-2026-07-09-credit-billing-flatten.sql`).
+
+### Migrate số dư
+
+Không cần migrate dữ liệu: credit là lớp hiển thị `quota / 1.000.000`. Số dư quota hiện tại của user giữ nguyên, chỉ đổi cách hiển thị và cách admin nhập khi "Cấp thêm" (nhập theo credit, backend nhân `1.000.000` để ra quota units).
+
+### Files liên quan (credit)
+
+- `src/potal/frontend/src/lib/format.ts` — `QUOTA_PER_CREDIT`, `quotaToCredit`, `formatCredit`, `formatCreditRate`.
+- `src/potal/frontend/src/views/**` + `src/potal/frontend/src/i18n/locales/{en,vi}.ts` — nhãn credit.
+- `src/potal/backend/.../ProvisioningController.java`, `PricingController.java` — mô tả gói theo credit.
+
+---
+
 ## 0. Flow quota/token và internal upstream cost
 
 ### Quyết định vận hành

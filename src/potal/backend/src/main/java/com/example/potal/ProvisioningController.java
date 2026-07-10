@@ -80,10 +80,10 @@ public class ProvisioningController {
     private void seedDefaultPlans() {
         long now = Instant.now().getEpochSecond();
         Object[][] defaults = {
-            {"BASIC", "Plus",  "20M token GPT-5.5/ngày; API key riêng; Dashboard usage", 549_000, 10, "",    20_000_000},
-            {"PRO",   "Pro",   "40M token GPT-5.5/ngày; Hỗ trợ setup code agent",       879_000, 20, "",    40_000_000},
-            {"ULTRA", "Ultra", "60M token GPT-5.5/ngày; Log usage chi tiết; Hỗ trợ riêng", 1_199_000, 30, "", 60_000_000},
-            {"S-UTRA", "Max",  "80M token GPT-5.5/ngày; Key phụ cho team; Quota rõ hằng ngày", 1_549_000, 40, "max", 80_000_000},
+            {"BASIC", "Plus",  "20 credit GPT-5.5/ngày; API key riêng; Dashboard usage", 549_000, 10, "",    20_000_000},
+            {"PRO",   "Pro",   "40 credit GPT-5.5/ngày; Hỗ trợ setup code agent",       879_000, 20, "",    40_000_000},
+            {"ULTRA", "Ultra", "60 credit GPT-5.5/ngày; Log usage chi tiết; Hỗ trợ riêng", 1_199_000, 30, "", 60_000_000},
+            {"S-UTRA", "Max",  "80 credit GPT-5.5/ngày; Key phụ cho team; Quota rõ hằng ngày", 1_549_000, 40, "max", 80_000_000},
         };
         for (Object[] d : defaults) {
             String oldTitle = (String) d[0];
@@ -125,10 +125,10 @@ public class ProvisioningController {
     private void seedTokenPacks() {
         long now = Instant.now().getEpochSecond();
         Object[][] defaults = {
-            {"Mini",     "50M token — gói one-time",  69_000, 10,  50_000_000},
-            {"Starter",  "100M token — gói one-time", 129_000, 20, 100_000_000},
-            {"Standard", "250M token — gói one-time", 299_000, 30, 250_000_000},
-            {"Power",    "500M token — gói one-time", 549_000, 40, 500_000_000},
+            {"Mini",     "50 credit — gói one-time",  69_000, 10,  50_000_000},
+            {"Starter",  "100 credit — gói one-time", 129_000, 20, 100_000_000},
+            {"Standard", "250 credit — gói one-time", 299_000, 30, 250_000_000},
+            {"Power",    "500 credit — gói one-time", 549_000, 40, 500_000_000},
         };
         for (Object[] d : defaults) {
             String title = (String) d[0];

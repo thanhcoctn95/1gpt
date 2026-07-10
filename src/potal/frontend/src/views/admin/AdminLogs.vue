@@ -20,15 +20,16 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Skeleton } from '@/components/ui/skeleton'
 import { Table, TableBody, TableCell, TableEmpty, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { useAuth } from '@/composables/useAuth'
-import { formatDateTime, formatNumber, formatResponseTime, formatTokens } from '@/lib/format'
+import { formatDateTime, formatNumber, formatResponseTime, formatCredit, todayISODate } from '@/lib/format'
 import {
   ApiError,
   deleteAdminLogs,
   getAdminLogs,
+  getAdminLogsStats,
   getLogRetention,
   setLogRetention,
 } from '@/services/api'
-import type { AdminLogParams, DeleteLogsParams, LogRow } from '@/services/api'
+import type { AdminLogParams, AdminLogStatsResponse, DeleteLogsParams, LogRow } from '@/services/api'
 
 const { t } = useI18n()
 const { adminToken } = useAuth()
@@ -41,8 +42,35 @@ const page = ref(1)
 const usernameFilter = ref('')
 const modelFilter = ref('')
 const statusFilter = ref<'all' | 'success' | 'error'>('all')
-const fromDate = ref('')
-const toDate = ref('')
+const fromDate = ref(todayISODate())
+const toDate = ref(todayISODate())
+const stats = ref<AdminLogStatsResponse | null>(null)
+
+const modelChartRows = computed(() =>
+  (stats.value?.byModel ?? []).map((row) => ({
+    model: String(row.model || '—'),
+    count: Number(row.req_count ?? 0),
+    tokens: Number((row.tokens_in ?? 0)) + Number((row.tokens_out ?? 0)),
+  })),
+)
+const maxModelRequests = computed(() => Math.max(1, ...modelChartRows.value.map((row) => row.count)))
+
+const statusBreakdown = computed(() => {
+  const total = Number(stats.value?.totals?.req_count ?? 0)
+  const error = Number(stats.value?.totals?.error_count ?? 0)
+  const success = Math.max(0, total - error)
+  const denom = total > 0 ? total : 1
+  const successPct = (success / denom) * 100
+  const errorPct = (error / denom) * 100
+  return {
+    success,
+    error,
+    total,
+    successPct,
+    errorPct,
+    gradient: `conic-gradient(rgb(34 197 94) 0% ${successPct}%, rgb(239 68 68) ${successPct}% 100%)`,
+  }
+})
 
 const pageCount = computed(() => Math.max(1, Math.ceil(total.value / pageSize)))
 const pageLabel = computed(() => `${t('common.page')} ${page.value} / ${pageCount.value}`)
@@ -73,10 +101,20 @@ function buildParams(): AdminLogParams {
 async function fetchLogs() {
   loading.value = true
   try {
-    const response = await getAdminLogs(adminToken.value, buildParams())
+    const params = buildParams()
+    const [response, statsRes] = await Promise.all([
+      getAdminLogs(adminToken.value, params),
+      getAdminLogsStats(adminToken.value, {
+        username: params.username,
+        modelName: params.modelName,
+        startTime: params.startTime,
+        endTime: params.endTime,
+      }),
+    ])
     logs.value = response.items
     total.value = response.total
     page.value = response.page || page.value
+    stats.value = statsRes
   } catch (err) {
     toast.error(errorMessage(err))
   } finally {
@@ -93,8 +131,8 @@ function resetFilters() {
   usernameFilter.value = ''
   modelFilter.value = ''
   statusFilter.value = 'all'
-  fromDate.value = ''
-  toDate.value = ''
+  fromDate.value = todayISODate()
+  toDate.value = todayISODate()
   page.value = 1
   fetchLogs()
 }
@@ -268,6 +306,97 @@ onMounted(() => {
 
     <Card>
       <CardHeader>
+        <CardTitle class="text-base">{{ t('admin.logs.statsTitle') }}</CardTitle>
+        <CardDescription>{{ t('admin.logs.statsHint') }}</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div class="grid gap-8 lg:grid-cols-2">
+          <!-- Success / error rate -->
+          <div class="flex flex-col gap-3">
+            <h3 class="text-sm font-medium">{{ t('admin.logs.statusChart') }}</h3>
+            <div v-if="loading" class="flex items-center gap-6">
+              <Skeleton class="size-32 rounded-full" />
+              <div class="flex flex-1 flex-col gap-3">
+                <Skeleton class="h-6 w-full" />
+                <Skeleton class="h-6 w-full" />
+              </div>
+            </div>
+            <div v-else-if="!statusBreakdown.total" class="py-6 text-center text-sm text-muted-foreground">
+              {{ t('common.noData') }}
+            </div>
+            <div v-else class="flex flex-col items-center gap-6 sm:flex-row sm:gap-8">
+              <div
+                class="relative size-32 shrink-0 rounded-full"
+                :style="{ background: statusBreakdown.gradient }"
+                role="img"
+                :aria-label="`${t('admin.logs.statusSuccess')} ${statusBreakdown.successPct.toFixed(1)}%, ${t('admin.logs.statusError')} ${statusBreakdown.errorPct.toFixed(1)}%`"
+              >
+                <div class="absolute inset-[22%] flex flex-col items-center justify-center rounded-full bg-background">
+                  <span class="text-lg font-semibold tabular-nums">{{ statusBreakdown.successPct.toFixed(0) }}%</span>
+                  <span class="text-xs text-muted-foreground">{{ t('admin.logs.statusSuccess') }}</span>
+                </div>
+              </div>
+              <ul class="flex flex-1 flex-col gap-3 text-sm">
+                <li class="flex items-center justify-between gap-3">
+                  <span class="flex items-center gap-2">
+                    <span class="size-3 rounded-full" style="background: rgb(34 197 94)" />
+                    {{ t('admin.logs.statusSuccess') }}
+                  </span>
+                  <span class="tabular-nums text-muted-foreground">
+                    {{ formatNumber(statusBreakdown.success) }} ({{ statusBreakdown.successPct.toFixed(1) }}%)
+                  </span>
+                </li>
+                <li class="flex items-center justify-between gap-3">
+                  <span class="flex items-center gap-2">
+                    <span class="size-3 rounded-full" style="background: rgb(239 68 68)" />
+                    {{ t('admin.logs.statusError') }}
+                  </span>
+                  <span class="tabular-nums text-muted-foreground">
+                    {{ formatNumber(statusBreakdown.error) }} ({{ statusBreakdown.errorPct.toFixed(1) }}%)
+                  </span>
+                </li>
+                <li class="flex items-center justify-between gap-3 border-t pt-2">
+                  <span class="font-medium">{{ t('common.total') }}</span>
+                  <span class="tabular-nums">{{ formatNumber(statusBreakdown.total) }}</span>
+                </li>
+              </ul>
+            </div>
+          </div>
+
+          <!-- Requests / tokens by model -->
+          <div class="flex flex-col gap-3">
+            <h3 class="text-sm font-medium">{{ t('admin.logs.modelRequests') }}</h3>
+            <div v-if="loading" class="flex flex-col gap-3">
+              <Skeleton v-for="i in 5" :key="i" class="h-8 w-full" />
+            </div>
+            <div v-else-if="!modelChartRows.length" class="py-6 text-center text-sm text-muted-foreground">
+              {{ t('common.noData') }}
+            </div>
+            <ul v-else class="flex flex-col gap-3">
+              <li v-for="row in modelChartRows" :key="row.model" class="grid gap-1">
+                <div class="flex items-center justify-between gap-3 text-sm">
+                  <span class="truncate font-medium">{{ row.model }}</span>
+                  <span class="tabular-nums text-muted-foreground">
+                    {{ formatNumber(row.count) }} {{ t('admin.overview.totalRequests') }}
+                    <span class="mx-1">·</span>
+                    {{ formatNumber(row.tokens) }} {{ t('admin.logs.tokensLabel') }}
+                  </span>
+                </div>
+                <div class="h-2.5 w-full overflow-hidden rounded-full bg-muted">
+                  <div
+                    class="h-full rounded-full bg-primary"
+                    :style="{ width: `${Math.max(4, (row.count / maxModelRequests) * 100)}%` }"
+                  />
+                </div>
+              </li>
+            </ul>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+
+    <Card>
+      <CardHeader>
         <CardTitle>{{ t('admin.nav.logs') }}</CardTitle>
         <CardDescription>{{ pageLabel }}</CardDescription>
       </CardHeader>
@@ -281,6 +410,7 @@ onMounted(() => {
               <TableHead>{{ t('admin.logs.status') }}</TableHead>
               <TableHead class="text-right">{{ t('admin.logs.tokensIn') }}</TableHead>
               <TableHead class="text-right">{{ t('admin.logs.tokensOut') }}</TableHead>
+              <TableHead class="text-right">{{ t('admin.logs.convertedTokens') }}</TableHead>
               <TableHead class="text-right">{{ t('admin.logs.tokens') }}</TableHead>
               <TableHead class="text-right">{{ t('admin.logs.responseTime') }}</TableHead>
               <TableHead>{{ t('admin.logs.channel') }}</TableHead>
@@ -297,10 +427,11 @@ onMounted(() => {
                 <TableCell><Skeleton class="ml-auto h-4 w-16" /></TableCell>
                 <TableCell><Skeleton class="ml-auto h-4 w-16" /></TableCell>
                 <TableCell><Skeleton class="ml-auto h-4 w-16" /></TableCell>
+                <TableCell><Skeleton class="ml-auto h-4 w-16" /></TableCell>
                 <TableCell><Skeleton class="h-4 w-24" /></TableCell>
               </TableRow>
             </template>
-            <TableEmpty v-else-if="logs.length === 0" :colspan="9" class="text-muted-foreground">
+            <TableEmpty v-else-if="logs.length === 0" :colspan="10" class="text-muted-foreground">
               {{ t('common.noData') }}
             </TableEmpty>
             <TableRow v-for="row in logs" v-else :key="row.id ?? row.request_id ?? `${row.created_at}-${row.model_name}`">
@@ -319,7 +450,8 @@ onMounted(() => {
               </TableCell>
               <TableCell class="text-right tabular-nums">{{ formatNumber(row.prompt_tokens) }}</TableCell>
               <TableCell class="text-right tabular-nums">{{ formatNumber(row.completion_tokens) }}</TableCell>
-              <TableCell class="text-right tabular-nums">{{ formatTokens(row.quota) }}</TableCell>
+              <TableCell class="text-right tabular-nums">{{ formatNumber(row.quota) }}</TableCell>
+              <TableCell class="text-right tabular-nums">{{ formatCredit(row.quota) }}</TableCell>
               <TableCell class="text-right tabular-nums">{{ formatResponseTime(row.use_time) }}</TableCell>
               <TableCell>{{ row.channel_name || '—' }}</TableCell>
             </TableRow>

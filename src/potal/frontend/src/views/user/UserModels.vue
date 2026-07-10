@@ -26,7 +26,7 @@ import {
 } from '@/components/ui/table'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useAuth } from '@/composables/useAuth'
-import { formatNumber } from '@/lib/format'
+import { formatNumber, formatCreditRate } from '@/lib/format'
 import {
   getDashboardModels,
   getModelRatios,
@@ -62,16 +62,17 @@ const rows = computed(() =>
     const r = ratioMap.value.get(m.model_name)
     const ratio = Number(r?.model_ratio ?? 1)
     const completionRatio = Number(r?.completion_ratio ?? 1)
-    const inputPer1k = 1000 * ratio
-    const outputPer1k = 1000 * ratio * completionRatio
+    // Credits per 1M tokens. Internally 1M tokens at ratio 1.0 drains 1M quota = 1 credit,
+    // so credits/1M input == model_ratio and credits/1M output == model_ratio × completion_ratio.
+    const creditInputPerM = ratio
+    const creditOutputPerM = ratio * completionRatio
     return {
       model_name: m.model_name,
       description: m.description,
       ratio,
       completionRatio,
-      inputPer1k,
-      outputPer1k,
-      sampleTotal: inputPer1k + outputPer1k,
+      creditInputPerM,
+      creditOutputPerM,
     }
   }),
 )
@@ -104,8 +105,8 @@ function fmtRatio(v: number | undefined) {
   return typeof v === 'number' && Number.isFinite(v) ? `${v.toFixed(2)}×` : '—'
 }
 
-function fmtTokenCalc(value: number) {
-  return formatNumber(Math.round(value))
+function fmtCreditRate(value: number) {
+  return formatCreditRate(value)
 }
 
 function openTest(modelName: string) {
@@ -206,11 +207,8 @@ onBeforeUnmount(() => {
               <TableCell class="text-right tabular-nums">{{ fmtRatio(row.ratio) }}</TableCell>
               <TableCell>
                 <div class="flex flex-col gap-1 text-sm">
-                  <span>{{ t('user.models.input1k') }} → {{ fmtTokenCalc(row.inputPer1k) }}</span>
-                  <span>{{ t('user.models.output1k') }} → {{ fmtTokenCalc(row.outputPer1k) }}</span>
-                  <span class="text-muted-foreground">
-                    {{ t('user.models.sample1k') }} → {{ fmtTokenCalc(row.sampleTotal) }}
-                  </span>
+                  <span>{{ t('user.models.input1m') }} → {{ fmtCreditRate(row.creditInputPerM) }} {{ t('user.models.creditUnit') }}</span>
+                  <span>{{ t('user.models.output1m') }} → {{ fmtCreditRate(row.creditOutputPerM) }} {{ t('user.models.creditUnit') }}</span>
                 </div>
               </TableCell>
               <TableCell class="text-right">
