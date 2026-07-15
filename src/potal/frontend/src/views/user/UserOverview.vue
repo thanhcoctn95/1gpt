@@ -273,9 +273,13 @@ onBeforeUnmount(() => {
           </div>
           <ul v-else class="flex flex-col gap-3">
             <li v-for="m in topModels" :key="m.model" class="flex flex-col gap-1">
-              <div class="flex items-center justify-between text-sm">
+              <div class="flex items-center justify-between gap-3 text-sm">
                 <span class="truncate font-medium">{{ m.model }}</span>
-                <span class="tabular-nums text-muted-foreground">{{ formatNumber(m.count) }}</span>
+                <span class="whitespace-nowrap tabular-nums text-muted-foreground">
+                  {{ formatNumber(m.count) }} {{ t('user.overview.requests') }}
+                  <span class="mx-1">·</span>
+                  {{ formatCredit(m.quota) }} {{ t('user.logs.creditLabel') }}
+                </span>
               </div>
               <div class="h-2 w-full overflow-hidden rounded-full bg-muted">
                 <div

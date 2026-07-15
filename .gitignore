@@ -43,3 +43,6 @@ backups/
 .pi/artifacts/
 .pi/task-registry.json
 .pi/task-session-history.json
+.pi/tasks/
+.pi/docs/tasks/
+.pi/verify-cache.json

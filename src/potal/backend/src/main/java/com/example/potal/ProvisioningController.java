@@ -602,7 +602,9 @@ public class ProvisioningController {
         authService.requireAdmin(authorization);
         ProvisionRequest safeRequest = (request == null ? new ProvisionRequest("", null) : request).normalized();
         long now = Instant.now().getEpochSecond();
-        long end = Instant.now().plusSeconds(31L * 24 * 60 * 60).getEpochSecond();
+        // Calendar-month anchor (like OpenAI/Claude via Stripe): +1 month from purchase,
+        // clamped to end-of-month for short months (e.g. Jan 30 -> Feb 28/29), never rolling into the 1st.
+        long end = Instant.ofEpochSecond(now).atZone(RESET_ZONE).plusMonths(1).toEpochSecond();
         long nextReset = LocalDate.now(RESET_ZONE).plusDays(1).atStartOfDay(RESET_ZONE).toEpochSecond();
 
         Map<String, Object> plan = getPlan(safeRequest.planId());

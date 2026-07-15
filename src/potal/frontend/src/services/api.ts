@@ -97,6 +97,7 @@ export type LogModelStatRow = {
   tokens_in?: number
   tokens_out?: number
   tokens_total?: number
+  total_quota?: number
 }
 
 export type LogStatusStat = {

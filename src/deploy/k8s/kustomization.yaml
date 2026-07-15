@@ -14,7 +14,7 @@ resources:
 images:
   - name: registry.inviv.vn/oneapi/potal-backend
     newName: registry.inviv.vn/oneapi/potal-backend
-    newTag: "20260710-021500-billing-flat-amd64"
+    newTag: "20260714-211603-grant-daily-credit-amd64"
   - name: registry.inviv.vn/oneapi/potal-frontend
     newName: registry.inviv.vn/oneapi/potal-frontend
-    newTag: "20260710-033000-plans-cards-amd64"
+    newTag: "20260714-211603-grant-daily-credit-amd64"

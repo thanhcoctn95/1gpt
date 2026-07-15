@@ -51,6 +51,7 @@ const modelChartRows = computed(() =>
     model: String(row.model || '—'),
     count: Number(row.req_count ?? 0),
     tokens: Number((row.tokens_in ?? 0)) + Number((row.tokens_out ?? 0)),
+    quota: Number(row.total_quota ?? 0),
   })),
 )
 const maxModelRequests = computed(() => Math.max(1, ...modelChartRows.value.map((row) => row.count)))
@@ -380,6 +381,8 @@ onMounted(() => {
                     {{ formatNumber(row.count) }} {{ t('admin.overview.totalRequests') }}
                     <span class="mx-1">·</span>
                     {{ formatNumber(row.tokens) }} {{ t('admin.logs.tokensLabel') }}
+                    <span class="mx-1">·</span>
+                    {{ formatCredit(row.quota) }} {{ t('admin.logs.creditLabel') }}
                   </span>
                 </div>
                 <div class="h-2.5 w-full overflow-hidden rounded-full bg-muted">

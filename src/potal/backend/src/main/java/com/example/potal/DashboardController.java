@@ -314,7 +314,8 @@ public class DashboardController {
                    count(*)::bigint AS request_count,
                    COALESCE(sum(l.prompt_tokens), 0)::bigint AS tokens_in,
                    COALESCE(sum(l.completion_tokens), 0)::bigint AS tokens_out,
-                   COALESCE(sum(l.prompt_tokens + l.completion_tokens), 0)::bigint AS tokens_total
+                   COALESCE(sum(l.prompt_tokens + l.completion_tokens), 0)::bigint AS tokens_total,
+                   COALESCE(sum(l.quota), 0)::bigint AS total_quota
             FROM logs l
             %s
             GROUP BY COALESCE(NULLIF(l.model_name, ''), '—')
