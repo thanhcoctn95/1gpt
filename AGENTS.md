@@ -11,7 +11,7 @@ Always-on execution loop for non-trivial work. It stays active even when the res
 3. Keep diffs surgical. Every changed line traces to the current request and matches existing style. Log unrelated issues as `NOTICED BUT NOT TOUCHING: ...` and keep moving.
 4. Define proof before acting. Name the success check (command, test path, or evidence) before implementing, then run that proof after.
 
-When you catch yourself adding abstraction for a single use case, editing adjacent code "while you're here", postponing verification, or claiming completion without a named proof path, stop and re-center on this kernel. See `.pi/skills/behavioral-kernel/SKILL.md` for the deep version with examples.
+When you catch yourself adding abstraction for a single use case, editing adjacent code "while you're here", postponing verification, or claiming completion without a named proof path, stop and re-center on this kernel. See `.pi/skills/context/behavioral-kernel/SKILL.md` for the deep version with examples.
 
 ## Start-of-Work Routing
 
@@ -41,7 +41,7 @@ Use the right format for the kind of content. Default to prose and bullet lists.
 | User changes | Never revert unrelated user work without explicit approval. |
 | Git | Do not commit, push, tag, reset, clean, or force-push unless explicitly asked. |
 | Evidence | Do not claim ready, fixed, synced, or pushed without fresh verification evidence. |
-| Subagent distrust | After delegating to a subagent, do not trust its summary. Read the diff, verify against acceptance criteria, and check the outputs yourself before accepting. See `.pi/skills/subagent-distrust/SKILL.md`. |
+| Subagent distrust | After delegating to a subagent, do not trust its summary. Read the diff, verify against acceptance criteria, and check the outputs yourself before accepting. See `.pi/skills/context/subagent-distrust/SKILL.md`. |
 | UI/UX evidence | Rendered evidence (browser state, screenshot, mockup, or manual visual observation) is optional, not required, for user-facing visual work. When you make a visual-quality claim, base it on whatever evidence you actually have and do not claim visual success from DOM/class names alone. If confidence is limited by lack of visual evidence, just say so. |
 | Destructive actions | Ask before irreversible or destructive operations. |
 
@@ -49,5 +49,5 @@ Use the right format for the kind of content. Default to prose and bullet lists.
 
 | Reference | Purpose |
 | --- | --- |
-| `.pi/skills/using-skills/SKILL.md` | Command-to-phase routing through existing pi-subagents agents. |
-| `.pi/skills/pikit-workflow/SKILL.md` | Pikit command contracts and Pi workflow rules. |
+| `.pi/skills/context/using-skills/SKILL.md` | Command-to-phase routing through existing pi-subagents agents. |
+| `.pi/skills/workflow/pikit-workflow/SKILL.md` | Pikit command contracts and Pi workflow rules. |

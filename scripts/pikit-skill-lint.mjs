@@ -2,7 +2,7 @@
 // Pikit skill linter. Validates SKILL.md frontmatter and structure.
 // Usage: node scripts/pikit-skill-lint.mjs [--check]
 //   --check : exit 1 on any error (for CI/governance)
-import { readFileSync, readdirSync, existsSync } from "node:fs";
+import { readFileSync, readdirSync, existsSync, statSync } from "node:fs";
 import { join } from "node:path";
 
 const SKILL_DIR = ".pi/skills";
@@ -79,9 +79,34 @@ const issues = [];
 let total = 0,
   passed = 0;
 
-for (const name of readdirSync(SKILL_DIR)) {
-  const file = join(SKILL_DIR, name, "SKILL.md");
-  if (!existsSync(file)) continue;
+// Skills live either flat (`.pi/skills/<name>/SKILL.md`) or grouped under a
+// category folder (`.pi/skills/<category>/<name>/SKILL.md`). Collect the skill
+// name (directory directly containing SKILL.md) plus its file path.
+function collectSkillFiles() {
+  const found = [];
+  for (const entry of readdirSync(SKILL_DIR)) {
+    const direct = join(SKILL_DIR, entry, "SKILL.md");
+    if (existsSync(direct)) {
+      found.push({ name: entry, file: direct });
+      continue;
+    }
+    const categoryDir = join(SKILL_DIR, entry);
+    let stat;
+    try {
+      stat = statSync(categoryDir);
+    } catch {
+      continue;
+    }
+    if (!stat.isDirectory()) continue;
+    for (const sub of readdirSync(categoryDir)) {
+      const nested = join(categoryDir, sub, "SKILL.md");
+      if (existsSync(nested)) found.push({ name: sub, file: nested });
+    }
+  }
+  return found;
+}
+
+for (const { name, file } of collectSkillFiles()) {
   total++;
   const text = readFileSync(file, "utf-8");
   const lineCount = text.split("\n").length;

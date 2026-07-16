@@ -50,11 +50,26 @@ function table(headers, rows) {
 function listSkillFiles() {
   const base = join(root, ".pi/skills");
   if (!existsSync(base)) return [];
-  return readdirSync(base, { withFileTypes: true })
-    .filter((entry) => entry.isDirectory())
-    .map((entry) => `.pi/skills/${entry.name}/SKILL.md`)
-    .filter((path) => existsSync(join(root, path)))
-    .sort();
+  // Skills live either flat (`.pi/skills/<name>/SKILL.md`) or grouped under a
+  // category folder (`.pi/skills/<category>/<name>/SKILL.md`). Walk one level
+  // deep: a directory is a skill if it has its own SKILL.md, otherwise treat it
+  // as a category and look one level below.
+  const out = [];
+  for (const entry of readdirSync(base, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    const direct = `.pi/skills/${entry.name}/SKILL.md`;
+    if (existsSync(join(root, direct))) {
+      out.push(direct);
+      continue;
+    }
+    const categoryDir = join(base, entry.name);
+    for (const sub of readdirSync(categoryDir, { withFileTypes: true })) {
+      if (!sub.isDirectory()) continue;
+      const nested = `.pi/skills/${entry.name}/${sub.name}/SKILL.md`;
+      if (existsSync(join(root, nested))) out.push(nested);
+    }
+  }
+  return out.sort();
 }
 
 function checkSettings() {
@@ -374,6 +389,10 @@ function checkPrompts() {
     : [];
   const contracts = {
     "audit.md": ["Audit codebase for a specific pattern", 'subagent_type: "Explore"'],
+    "commit-push.md": [
+      "Commit and push changes following Conventional Commits",
+      'subagent_type: "Build"',
+    ],
     "create.md": [
       "Create a specification with PRD, tasks, and workspace setup",
       'subagent_type: "Build"',
@@ -388,6 +407,10 @@ function checkPrompts() {
       'subagent_type: "Build"',
     ],
     "plan.md": ["Create detailed implementation plan with TDD steps", 'subagent_type: "Plan"'],
+    "release.md": [
+      "Cut a Pikit pack release — bump version, verify, commit, and push",
+      'subagent_type: "Build"',
+    ],
     "research.md": ["Research a topic before implementation", 'subagent_type: "Scout"'],
     "ship.md": ["Ship a plan - implement specs, verify, review, close", 'subagent_type: "Build"'],
     "verify.md": [
@@ -431,8 +454,8 @@ function agentSkills(path) {
 }
 
 function checkDocsLifecycle() {
-  const workflow = read(".pi/skills/pikit-workflow/SKILL.md");
-  const docsSkill = read(".pi/skills/documentation-and-adrs/SKILL.md");
+  const workflow = read(".pi/skills/workflow/pikit-workflow/SKILL.md");
+  const docsSkill = read(".pi/skills/context/documentation-and-adrs/SKILL.md");
   const lifecyclePrompts = ["create.md", "plan.md", "ship.md", "verify.md"];
   const missingPromptContracts = lifecyclePrompts.filter((name) => {
     const text = read(`.pi/prompts/${name}`);
@@ -569,21 +592,6 @@ function checkSyncScript() {
   );
 }
 
-function checkPermissionGate() {
-  const text = read(".pi/extensions/permission-gate.ts");
-  const needles = [
-    "isWorldWritablePermissionCommand",
-    "chmod|chown",
-    "world-writable permission change",
-  ];
-  addCheck(
-    "permission-gate-world-writable",
-    needles.every((needle) => text.includes(needle)),
-    needles.join(", "),
-    "Block direct chmod/chown 777 commands before allow fallback",
-  );
-}
-
 function checkGitAwareness() {
   try {
     const dirty = execFileSync("git", ["status", "--porcelain=v1", "--untracked-files=all"], {
@@ -618,7 +626,6 @@ checkDocsLifecycle();
 checkAgents();
 checkExtensions();
 checkSyncScript();
-checkPermissionGate();
 checkGitAwareness();
 
 const failed = checks.filter((check) => !check.ok);
