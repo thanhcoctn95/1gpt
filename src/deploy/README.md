@@ -15,12 +15,14 @@ It is intentionally sibling to:
 - Portal backend: service `potal-backend:8081`, exposed by NodePort `30082` and public host `api.1api.click`.
 - Portal frontend: service `potal-frontend:80`, exposed by NodePort `30083` and public host `1api.click`.
 - Optional admin companion: service `new-api-user-portal:3010`, exposed by NodePort `30085` and public host `admin.1api.click` if external nginx is configured for it. The main supported admin channel screen is now integrated into `potal-frontend` at `/admin`.
+- 9router: service `nine-router:20128`, exposed by NodePort `30086` and public host `router.1api.click`. Local Compose publishes it at `http://localhost:20129` and exposes it to containers as `http://oneapi-9router:20128`.
 
 Default public URLs after apply:
 
 - Portal: `https://1api.click/`
 - Portal admin: `https://1api.click/admin`
 - New API: `https://new.api.1api.click/`
+- 9router: `https://router.1api.click/`
 - Portal backend: `https://api.1api.click/`
 
 ## Prerequisites
@@ -33,11 +35,13 @@ On the machine where you run deploy:
   - `1api.click`
   - `api.1api.click`
   - `new.api.1api.click`
+  - `router.1api.click`
 - NFS export server `172.19.81.149` is reachable from every Kubernetes node.
 - NFS export directories exist and have permissions suitable for container writes:
   - `/opt/lib/k8s/data/oneapi/postgres`
   - `/opt/lib/k8s/data/oneapi/new-api-data`
   - `/opt/lib/k8s/data/oneapi/new-api-logs`
+  - `/opt/lib/k8s/data/oneapi/9router-data`
 - Container images for portal backend/frontend are available to the cluster.
 - Server/firewall allows public HTTP/HTTPS traffic to the ingress controller endpoint.
 
@@ -149,12 +153,14 @@ kubectl -n oneapi rollout status deploy/new-api-postgres
 kubectl -n oneapi rollout status deploy/new-api
 kubectl -n oneapi rollout status deploy/potal-backend
 kubectl -n oneapi rollout status deploy/potal-frontend
+kubectl -n oneapi rollout status deploy/9router
 
 curl -i https://1api.click/
 curl -i https://1api.click/admin
 curl -i https://1api.click/api/health
 curl -i https://api.1api.click/api/health
 curl -i https://new.api.1api.click/v1/models
+curl -i https://router.1api.click/api/health
 ```
 
 After signing in as an admin at `/admin`, open `Channels` and run the VietAPI upstream quota check for a channel. A successful check returns sanitized fields such as `total_available`, `total_used`, `daily_cap`, and `expire_time`; the UI displays the same upstream quota units returned by VietAPI. This check is separate from portal user billing, which remains token/quota based.
@@ -168,6 +174,7 @@ new-api:             NodePort 30081 -> container port 3000
 potal-backend:       NodePort 30082 -> container port 8081
 potal-frontend:      NodePort 30083 -> container port 80
 new-api-user-portal: NodePort 30085 -> container port 3010 (optional companion admin)
+nine-router:         NodePort 30086 -> container port 20128
 ```
 
 Public host mapping:
@@ -176,12 +183,71 @@ Public host mapping:
 - `api.1api.click` routes to `potal-backend` NodePort `30082`.
 - `new.api.1api.click` routes to `new-api` NodePort `30081`.
 - `admin.1api.click`, if used, routes to optional `new-api-user-portal` NodePort `30085`. Prefer `https://1api.click/admin` for the integrated portal admin.
+- `router.1api.click` routes directly to `nine-router` NodePort `30086`.
 
-Configure TLS certificates on the external nginx for each public hostname.
+Configure TLS certificates on the external nginx for each public hostname. For SSE/LLM streaming, disable proxy buffering and set read/send timeouts to at least 180 seconds. The Kubernetes Ingress manifest applies the same 180-second streaming timeout to the `new.api.1api.click` path:
+
+```nginx
+proxy_http_version 1.1;
+proxy_buffering off;
+proxy_request_buffering off;
+proxy_read_timeout 180s;
+proxy_send_timeout 180s;
+add_header X-Accel-Buffering no always;
+```
+
+The production request path is:
+
+```txt
+client -> external nginx -> Kubernetes NodePort/Ingress -> New API
+New API -> router.1api.click -> external nginx -> NodePort 30086 -> 9router -> provider
+```
+
+A successful streaming verification must return SSE chunks followed by `data: [DONE]`. New API logs should record `is_stream: true` and `stream_status.status: ok`; a failure at exactly 60 seconds with `client_gone` or `context canceled` indicates an unconfigured proxy timeout on the request path.
+
+## Local Compose: 9router
+
+Create local secrets before starting the Compose-managed 9router instance:
+
+```bash
+cd src/deploy
+cp .env.example .env
+chmod 600 .env
+# Replace every placeholder with an independent strong value.
+docker compose config
+docker compose up -d 9router
+curl -fsS http://localhost:20129/api/health
+```
+
+The 9router dashboard and OpenAI-compatible API are available on the host at `http://localhost:20129` and `http://localhost:20129/v1`. Containers on `oneapi-net` must use `http://oneapi-9router:20128/v1`; port `20129` is only the host mapping.
+
+For a VietAPI model exposed by 9router as `vietapi/gpt-5.5`, configure a New API OpenAI channel with:
+
+- Base URL: `http://oneapi-9router:20128/v1`
+- Key: an API key generated by 9router, not the underlying VietAPI key
+- Model: `vietapi/gpt-5.5`
+- Group: `default`
+- Status: enabled
+
+Verify the upstream before testing through New API:
+
+```bash
+curl -fsS http://localhost:20129/v1/models \
+  -H "Authorization: Bearer $NINE_ROUTER_CLIENT_API_KEY"
+
+curl -fsS http://localhost:20129/v1/chat/completions \
+  -H "Authorization: Bearer $NINE_ROUTER_CLIENT_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"model":"vietapi/gpt-5.5","messages":[{"role":"user","content":"ping"}],"stream":false}'
+```
+
+If New API reports connection refused, confirm the channel uses container port `20128`, not host port `20129`. If 9router reports no active credentials, activate the provider credential in the 9router dashboard. Do not put provider keys or 9router client keys in this README, committed SQL, or Compose literals.
+
+Rollback is non-destructive: disable the 9router channel in New API, then run `docker compose stop 9router`. Do not remove `oneapi-9router-data` unless the provider/account configuration is intentionally being discarded.
 
 ## Notes
 
-- `k8s/01-secret.yaml` is ignored by `.gitignore` in this folder.
+- `.env` and `k8s/01-secret.yaml` are ignored; `.env.example` contains placeholders only.
 - PostgreSQL, New API data, and logs use static NFS PV/PVC. PV reclaim policy is `Retain`; deleting PVCs will not automatically delete the NFS directory, but can detach the claim from the workload.
 - Portal frontend nginx proxies `/api/` to `http://potal-backend:8081/api/`, matching Kubernetes service DNS.
 - Public access is domain-based through the external nginx and Kubernetes NodePort services.

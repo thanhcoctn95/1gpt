@@ -11,6 +11,7 @@ resources:
   - 07-ingress.yaml
   - 08-monitoring.yaml
   - 09-new-api-user-portal.yaml
+  - 10-9router.yaml
 images:
   - name: registry.inviv.vn/oneapi/potal-backend
     newName: registry.inviv.vn/oneapi/potal-backend

@@ -120,10 +120,47 @@ services:
     networks:
       - oneapi-net
 
+  9router:
+    image: decolua/9router@sha256:35717c131f695106f62087bc5915f9ddba992ea32d58b0fb12790ab69def944a
+    container_name: oneapi-9router
+    restart: unless-stopped
+    ports:
+      - "20129:20128"
+    environment:
+      PORT: "20128"
+      HOSTNAME: "0.0.0.0"
+      NODE_ENV: production
+      DATA_DIR: /app/data
+      BASE_URL: http://localhost:20129
+      NEXT_PUBLIC_BASE_URL: http://localhost:20129
+      JWT_SECRET: ${NINE_ROUTER_JWT_SECRET:?set NINE_ROUTER_JWT_SECRET in src/deploy/.env}
+      API_KEY_SECRET: ${NINE_ROUTER_API_KEY_SECRET:?set NINE_ROUTER_API_KEY_SECRET in src/deploy/.env}
+      MACHINE_ID_SALT: ${NINE_ROUTER_MACHINE_ID_SALT:?set NINE_ROUTER_MACHINE_ID_SALT in src/deploy/.env}
+      INITIAL_PASSWORD: ${NINE_ROUTER_INITIAL_PASSWORD:?set NINE_ROUTER_INITIAL_PASSWORD in src/deploy/.env}
+      REQUIRE_API_KEY: ${NINE_ROUTER_REQUIRE_API_KEY:-false}
+      ENABLE_REQUEST_LOGS: ${NINE_ROUTER_ENABLE_REQUEST_LOGS:-false}
+      OBSERVABILITY_ENABLED: ${NINE_ROUTER_OBSERVABILITY_ENABLED:-true}
+      AUTH_COOKIE_SECURE: ${NINE_ROUTER_AUTH_COOKIE_SECURE:-false}
+    volumes:
+      - oneapi-9router-data:/app/data
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "node -e \"fetch('http://127.0.0.1:20128/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\"",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    networks:
+      - oneapi-net
+
 volumes:
   oneapi-pg-data:
   oneapi-new-api-data:
   oneapi-new-api-logs:
+  oneapi-9router-data:
 
 networks:
   oneapi-net:

@@ -22,12 +22,14 @@ echo "Namespace: $NAMESPACE"
 echo "Portal domain: $PORTAL_DOMAIN"
 echo "API domain: $API_DOMAIN"
 echo "Admin domain via external nginx NodePort: $ADMIN_DOMAIN -> 30085"
+echo "9router domain via external nginx NodePort: https://router.1api.click -> 30086"
 kubectl apply -k "$K8S_DIR"
 kubectl -n "$NAMESPACE" rollout status deploy/new-api-postgres --timeout=180s
 kubectl -n "$NAMESPACE" rollout status deploy/new-api --timeout=300s
 kubectl -n "$NAMESPACE" rollout status deploy/potal-backend --timeout=300s
 kubectl -n "$NAMESPACE" rollout status deploy/potal-frontend --timeout=180s
 kubectl -n "$NAMESPACE" rollout status deploy/new-api-user-portal --timeout=180s
+kubectl -n "$NAMESPACE" rollout status deploy/9router --timeout=300s
 kubectl -n "$NAMESPACE" get pods,svc
 cat <<MSG
 
@@ -35,6 +37,7 @@ Access after NodePort/external nginx routing:
 - Portal:       https://$PORTAL_DOMAIN/
 - New API/API:  https://$API_DOMAIN/
 - Admin portal: https://$ADMIN_DOMAIN/admin  (external nginx -> nodePort 30085)
+- 9router:      https://router.1api.click/  (external nginx -> nodePort 30086)
 
-Ensure external nginx proxies $ADMIN_DOMAIN to Kubernetes nodePort 30085.
+Ensure external nginx proxies $ADMIN_DOMAIN to Kubernetes nodePort 30085 and router.1api.click to nodePort 30086.
 MSG
