@@ -38,6 +38,60 @@ function parseFrontmatter(text) {
   return data;
 }
 
+function parseContractMarker(text, name) {
+  const match = text.match(new RegExp(`<!--\\s*pikit-contract:${name}\\s+([^>]+?)\\s*-->`));
+  if (!match) return null;
+  return Object.fromEntries(
+    [...match[1].matchAll(/([a-z-]+)=([^\s]+)/g)].map((entry) => [entry[1], entry[2]]),
+  );
+}
+
+function workflowDeclarations(text) {
+  return [...text.matchAll(/<!--\s*pikit-workflow:\s*([A-Za-z0-9._-]+)\s*-->/g)].map(
+    (match) => match[1],
+  );
+}
+
+function section(text, heading) {
+  const match = new RegExp(`^##+\\s+${heading}\\s*$`, "im").exec(text);
+  if (!match) return "";
+  const start = match.index + match[0].length;
+  const next = /^##+\s+/m.exec(text.slice(start));
+  return text.slice(start, next ? start + next.index : undefined);
+}
+
+function normalized(text) {
+  return text
+    .replace(/<!--.*?-->/gs, " ")
+    .replace(/[*_`]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function ordered(text, tokens) {
+  let cursor = 0;
+  const value = normalized(text).toLowerCase();
+  return tokens.every((token) => {
+    const index = value.indexOf(token.toLowerCase(), cursor);
+    if (index === -1) return false;
+    cursor = index + token.length;
+    return true;
+  });
+}
+
+function hasAll(text, tokens) {
+  const value = normalized(text).toLowerCase();
+  return tokens.every((token) => value.includes(token.toLowerCase()));
+}
+
+function satisfiesCanonicalClause(text, required, forbidden = []) {
+  const value = normalized(text);
+  return (
+    required.every((pattern) => pattern.test(value)) &&
+    !forbidden.some((pattern) => pattern.test(value))
+  );
+}
+
 function table(headers, rows) {
   const escape = (value) => String(value).replace(/\n/g, " ").replace(/\|/g, "\\|");
   const out = [];
@@ -418,6 +472,50 @@ function checkPrompts() {
       'subagent_type: "Review"',
     ],
   };
+  const requiredSkillContracts = {
+    "audit.md": [
+      "code-navigation",
+      "code-review-and-quality",
+      ".pi/skills/workflow/scope-discipline/SKILL.md",
+    ],
+    "commit-push.md": [
+      ".pi/skills/infra/git-workflow-and-versioning/SKILL.md",
+      ".pi/skills/infra/github-ci/SKILL.md",
+    ],
+    "create.md": [
+      ".pi/skills/workflow/spec-driven-development/SKILL.md",
+      ".pi/skills/workflow/planning-and-task-breakdown/SKILL.md",
+      ".pi/skills/context/documentation-and-adrs/SKILL.md",
+      ".pi/skills/workflow/scope-discipline/SKILL.md",
+    ],
+    "fix.md": [
+      ".pi/skills/code-quality/root-cause-tracing/SKILL.md",
+      ".pi/skills/code-quality/verification-before-completion/SKILL.md",
+    ],
+    "gc.md": [
+      ".pi/skills/code-quality/fallow/SKILL.md",
+      ".pi/skills/code-quality/verification-before-completion/SKILL.md",
+    ],
+    "init.md": [
+      ".pi/skills/workflow/brainstorming/SKILL.md",
+      ".pi/skills/code-quality/verification-before-completion/SKILL.md",
+    ],
+    "release.md": [
+      ".pi/skills/infra/git-workflow-and-versioning/SKILL.md",
+      ".pi/skills/infra/github-ci/SKILL.md",
+    ],
+    "research.md": [
+      ".pi/skills/context/research-tools/SKILL.md",
+      ".pi/skills/context/external-facts/SKILL.md",
+    ],
+    "ship.md": [
+      ".pi/skills/workflow/incremental-implementation/SKILL.md",
+      ".pi/skills/workflow/scope-discipline/SKILL.md",
+      ".pi/skills/code-quality/agent-code-quality-gate/SKILL.md",
+      ".pi/skills/code-quality/verification-before-completion/SKILL.md",
+      ".pi/skills/context/subagent-distrust/SKILL.md",
+    ],
+  };
   const expected = Object.keys(contracts).sort();
   const problems = [];
   if (JSON.stringify(prompts) !== JSON.stringify(expected)) {
@@ -430,16 +528,377 @@ function checkPrompts() {
     for (const needle of needles) {
       if (!text.includes(needle)) problems.push(`${path}: missing ${needle}`);
     }
+    for (const skill of requiredSkillContracts[name] ?? []) {
+      if (!text.includes(skill)) problems.push(`${path}: missing required skill contract ${skill}`);
+    }
     if (!text.includes("Agent")) problems.push(`${path}: missing pi-subagents phase contract`);
     if (text.includes("Required skills:")) {
       problems.push(`${path}: legacy Required skills header present`);
     }
   }
+  const expectedArgumentPrompts = [
+    "audit.md",
+    "commit-push.md",
+    "create.md",
+    "fix.md",
+    "init.md",
+    "release.md",
+    "research.md",
+    "verify.md",
+  ];
+  for (const name of expectedArgumentPrompts) {
+    const text = existsSync(join(dir, name)) ? read(`.pi/prompts/${name}`) : "";
+    if (!new RegExp(`^# .+: \\$ARGUMENTS$`, "m").test(text))
+      problems.push(`.pi/prompts/${name}: heading must propagate $ARGUMENTS`);
+  }
+
   addCheck(
     "prompt-agent-phase-routing",
     problems.length === 0,
-    `${prompts.length} command contracts checked; problems=${problems.length}`,
+    `${prompts.length} command contracts and ${Object.keys(requiredSkillContracts).length} required-skill mappings checked; problems=${problems.length}`,
     problems.slice(0, 5).join("; "),
+  );
+
+  const semanticContracts = {
+    "create.md": {
+      marker: "create",
+      values: { discovery: "2..5", reviews: "1..5", synthesis: "all" },
+    },
+    "research.md": {
+      marker: "research",
+      values: {
+        taskless: "true",
+        "fanout-scout": "3..10",
+        "fanout-explore": "0..3",
+        "fanout-review": "2..10",
+        "retrieval-total": "3..13",
+      },
+    },
+    "ship.md": {
+      marker: "ship",
+      values: {
+        aspects: "correctness,code-quality,performance-security",
+        repeat: "after-fixes",
+        blocking: "P0,P1,P2",
+        "batch-implementers": "2..10",
+        "batch-chunking": "true",
+      },
+    },
+    "init.md": {
+      marker: "init",
+      values: { standalone: "true", "lifecycle-claim": "false" },
+    },
+    "plan.md": {
+      marker: "plan",
+      values: {
+        split: "subsystem,file-ownership,files-over-5,discovery-checkpoint,half-context",
+        "hard-cap": "none",
+        "cohesion-exception": "true",
+      },
+    },
+  };
+  for (const [name, contract] of Object.entries(semanticContracts)) {
+    const text = existsSync(join(dir, name)) ? read(`.pi/prompts/${name}`) : "";
+    const marker = parseContractMarker(text, contract.marker);
+    const invalid = Object.entries(contract.values)
+      .filter(([key, value]) => marker?.[key] !== value)
+      .map(([key, value]) => `${key}=${value} (found ${marker?.[key] ?? "missing"})`);
+    addCheck(
+      `prompt-${name.slice(0, -3)}-semantics`,
+      marker !== null && invalid.length === 0,
+      `pikit-contract:${contract.marker}; invalid=${invalid.length}`,
+      marker === null
+        ? `Missing pikit-contract:${contract.marker} marker`
+        : `Restore approved values: ${invalid.join("; ")}`,
+    );
+  }
+
+  const operativeProblems = [];
+  const promptText = (name) => read(`.pi/prompts/${name}`);
+  const createDiscovery = section(promptText("create.md"), "Phase 1: Choose Discovery Angles");
+  const createGather = section(promptText("create.md"), "Phase 2: Gather Context");
+  const createSynthesis = section(promptText("create.md"), "Phase 3: Build the Specification");
+  if (
+    !satisfiesCanonicalClause(
+      createDiscovery,
+      [/\b(?:must|required(?:ment)?)\b.{0,80}\b2[–-]5\b.{0,80}\bdiscovery angles?\b/i],
+      [
+        /(?:\bno requirement\b|\boptional\b|\bnot required\b).{0,80}\b(?:use\s+)?2[–-]5\b|\b2[–-]5\b.{0,80}(?:\bno requirement\b|\boptional\b|\bnot required\b)/i,
+      ],
+    )
+  )
+    operativeProblems.push("create.md: discovery prose must require 2–5 angles before synthesis");
+  if (
+    !ordered(createGather, [
+      "Collect all discovery results",
+      "1–5",
+      "Review",
+      "before synthesis",
+      "Collect every review result",
+    ])
+  )
+    operativeProblems.push(
+      "create.md: discovery, 1–5 reviews, collection, and synthesis order missing",
+    );
+  if (!hasAll(createSynthesis, ["all 2–5 discovery results", "all 1–5 requirement-review results"]))
+    operativeProblems.push("create.md: synthesis inputs do not include all bounded results");
+
+  const researchContext = section(promptText("research.md"), "Phase 1: Context");
+  const researchComplex = section(promptText("research.md"), "Complex Workflow");
+  const researchContextText = normalized(researchContext);
+  if (
+    !satisfiesCanonicalClause(
+      researchContext,
+      [
+        /\b(?:require|required|must)\b.{0,200}\bspec\.md\b|\bspec\.md\b.{0,200}\b(?:require|required|must)\b/i,
+        /\b(?:treat|consider)\b.{0,100}\bprogress\.md\b.{0,100}\boptional\b|\bprogress\.md\b.{0,100}\b(?:is|remains?)\b.{0,40}\boptional\b/i,
+      ],
+      [
+        /\b(?:allow|treat|consider|make)\b.{0,160}\bspec\.md\b.{0,80}\b(?:optional|not required)\b|\bspec\.md\b.{0,80}\b(?:is|remains?|be|becomes?)\b.{0,40}\b(?:optional|not required)\b|\b(?:optional|not required)\b.{0,80}\bspec\.md\b/i,
+        /\brequire\b.{0,80}\bprogress\.md\b.{0,40}\b(?:exist|required|mandatory)\b|\b(?:mandatory|must-have)\b.{0,40}\bprogress\.md\b|\bprogress\.md\b.{0,120}\b(?:required|mandatory|must\s+exist)\b/i,
+      ],
+    ) ||
+    !hasAll(researchContext, [
+      "explicit existing",
+      "taskless",
+      "do not resolve",
+      "original supplied string",
+      "byte-for-byte equal",
+      "decoded string",
+      "task directory",
+      "realpath",
+      "TaskList",
+      "state lookup",
+      "not a filesystem artifact",
+    ]) ||
+    !/progress\.md.{0,80}only when|only when.{0,80}progress\.md/i.test(researchContextText)
+  )
+    operativeProblems.push(
+      "research.md: taskless/slug/required spec/optional progress/realpath prose incomplete",
+    );
+  if (!hasAll(researchComplex, ["3–10", "Scout", "0–3", "Explore", "3 and 13", "2–10", "Review"]))
+    operativeProblems.push("research.md: complex Scout/Explore/Review/total bounds missing");
+
+  const shipBatch = section(promptText("ship.md"), "Phase 1: Route Execution");
+  const shipReviews = section(promptText("ship.md"), "Phase 4: Final Reviews");
+  if (
+    !hasAll(shipBatch, ["2–10", "General", "more than 10", "waves of at most 10", "Between waves"])
+  )
+    operativeProblems.push("ship.md: batch cap and chunking prose missing");
+  if (
+    !hasAll(shipReviews, [
+      "exactly three",
+      "Correctness",
+      "Code quality",
+      "Performance/security",
+      "P0/P1/P2",
+    ]) ||
+    !satisfiesCanonicalClause(
+      shipReviews,
+      [/\b(?:must|require\w*|then)\b.{0,120}\brepeat exactly the same three\b/i],
+      [/\b(?:do not|must not|should not|never)\b.{0,80}\brepeat exactly the same three\b/i],
+    )
+  )
+    operativeProblems.push("ship.md: final aspects/repeat/blocking prose missing");
+
+  const initContract = section(promptText("init.md"), "Standalone Command Contract");
+  if (
+    !hasAll(initContract, ["standalone", "does not claim or require", "development-lifecycle.md"])
+  )
+    operativeProblems.push("init.md: standalone prose missing");
+  const planPolicy = section(promptText("plan.md"), "Task Splitting Policy");
+  if (
+    !hasAll(planPolicy, [
+      "subsystem boundaries",
+      "file-ownership boundaries",
+      "more than five files",
+      "strong cohesion",
+      "discovery or human checkpoints",
+      "half an agent context window",
+    ]) ||
+    !satisfiesCanonicalClause(
+      planPolicy,
+      [/\b(?:there is|has|set)\b.{0,30}\bno hard cap\b/i],
+      [/\b(?:must|shall|required?\w*|set|enforce\w*)\b.{0,50}\b(?:a|the) hard cap\b/i],
+    )
+  )
+    operativeProblems.push("plan.md: boundary splitting/no-cap prose missing");
+
+  addCheck(
+    "prompt-operative-semantics",
+    operativeProblems.length === 0,
+    `bounded operative sections checked; problems=${operativeProblems.length}`,
+    operativeProblems.slice(0, 8).join("; "),
+  );
+
+  const researchSlug = parseContractMarker(read(".pi/prompts/research.md"), "research-task-slug");
+  addCheck(
+    "research-task-slug-safety",
+    researchSlug?.grammar === "^[a-z0-9]+(?:-[a-z0-9]+)*$" &&
+      researchSlug?.containment === ".pi/docs/tasks" &&
+      researchSlug?.["decode-before-validate"] === "true" &&
+      researchSlug?.["original-equals-decoded"] === "true" &&
+      researchSlug?.realpath === "true",
+    "stable research slug marker requires canonical grammar, original-equals-decoded validation, and realpath task-root containment",
+    "Restore the research-task-slug marker and validation/containment procedure",
+  );
+}
+
+function checkWorkflows() {
+  const requiredPacketFields = [
+    "Objective",
+    "Inputs and prior outputs",
+    "Repository/file scope",
+    "Non-goals",
+    "Allowed actions",
+    "Dependencies",
+    "Output schema",
+    "Acceptance",
+    "Verification",
+    "Stop/escalation",
+  ];
+  const semanticNeedles = {
+    "audit-pattern": ["2 and 15", "taskless audit", "Never invent a slug"],
+    "batch-implement": [
+      "type definitions",
+      "error handling",
+      "unit tests",
+      "Dependent/sequential branch",
+      "Fan-in and merge",
+    ],
+    "deep-research": {
+      needles: ["five consecutive retrievals", "answered", "partial", "unanswered"],
+      marker: "deep-research",
+      values: {
+        "fanout-scout": "3..10",
+        "fanout-explore": "0..3",
+        "retrieval-total": "3..13",
+        "fanout-review": "2..10",
+      },
+    },
+    "development-lifecycle": [
+      "Description, Pros, Cons, Complexity, Risks",
+      "Direct/dependent path",
+      "Correctness:",
+      "Code quality:",
+      "Performance/security:",
+    ],
+    "garbage-collection": ["Final report", "Trend: N/A", "PR status"],
+  };
+  const problems = [];
+  try {
+    const manifest = JSON.parse(read(".pi/workflows/manifest.json"));
+    const expectedIds = Object.keys(semanticNeedles).sort();
+    const actualIds = (manifest.workflows || []).map((item) => item.id).sort();
+    if (JSON.stringify(expectedIds) !== JSON.stringify(actualIds))
+      problems.push(
+        `workflow IDs expected ${expectedIds.join(", ")}; found ${actualIds.join(", ")}`,
+      );
+    const routesByWorkflow = new Map();
+    const workflowByFile = new Map();
+    for (const item of manifest.workflows || []) {
+      workflowByFile.set(item.file, item);
+      for (const command of item.commands || []) {
+        const routes = routesByWorkflow.get(command) || [];
+        routes.push(item.file);
+        routesByWorkflow.set(command, routes);
+      }
+    }
+    for (const item of manifest.workflows || []) {
+      const path = `.pi/workflows/${item.file}`;
+      if (!existsSync(join(root, path))) {
+        problems.push(`${path}: missing`);
+        continue;
+      }
+      const text = read(path);
+      if (!text.includes(`Workflow ID: \`${item.id}\``))
+        problems.push(`${path}: workflow identity mismatch`);
+      for (const field of requiredPacketFields)
+        if (!text.includes(field)) problems.push(`${path}: missing phase packet field ${field}`);
+      const semantics = semanticNeedles[item.id] || [];
+      const needles = Array.isArray(semantics) ? semantics : semantics.needles;
+      for (const needle of needles)
+        if (!text.includes(needle)) problems.push(`${path}: missing semantic contract ${needle}`);
+      if (!Array.isArray(semantics) && semantics.marker) {
+        const marker = parseContractMarker(text, semantics.marker);
+        const invalid = Object.entries(semantics.values)
+          .filter(([key, value]) => marker?.[key] !== value)
+          .map(([key, value]) => `${key}=${value} (found ${marker?.[key] ?? "missing"})`);
+        if (marker === null)
+          problems.push(`${path}: missing pikit-contract:${semantics.marker} marker`);
+        else if (invalid.length > 0)
+          problems.push(`${path}: restore approved values ${invalid.join("; ")}`);
+        const phases = section(text, "Phases");
+        if (
+          !hasAll(phases, ["3–10", "Scout", "0–3", "Explore", "3–13", "2–10", "Review"]) ||
+          !satisfiesCanonicalClause(
+            phases,
+            [/\b(?:must|required?\w*)\b.{0,80}\b3[–-]13\b/i],
+            [/\b(?:do not|must not|should not|never|no requirement)\b.{0,80}\b(?:cap|3[–-]13)\b/i],
+          )
+        )
+          problems.push(`${path}: operative phases must require the Scout/Explore total cap`);
+      }
+    }
+
+    const expectedDeclarations = Object.fromEntries(
+      (manifest.workflows || []).flatMap((item) =>
+        (item.commands || []).map((command) => [command, []]),
+      ),
+    );
+    for (const item of manifest.workflows || []) {
+      for (const command of item.commands || []) expectedDeclarations[command].push(item.file);
+    }
+    const standalone = ["commit-push", "fix", "init", "release"];
+    for (const command of standalone) expectedDeclarations[command] = ["standalone"];
+
+    const promptNames = readdirSync(join(root, ".pi/prompts")).filter((entry) =>
+      entry.endsWith(".md"),
+    );
+    for (const name of promptNames) {
+      const command = name.slice(0, -3);
+      const promptPath = `.pi/prompts/${name}`;
+      const declarations = workflowDeclarations(read(promptPath));
+      const expected = expectedDeclarations[command];
+      if (!expected) {
+        problems.push(`${promptPath}: no workflow declaration contract`);
+        continue;
+      }
+      if (
+        declarations.length !== expected.length ||
+        [...declarations].sort().join("|") !== [...expected].sort().join("|")
+      )
+        problems.push(
+          `${promptPath}: expected workflow markers ${expected.join(", ")}; found ${declarations.join(", ") || "none"}`,
+        );
+      if (declarations.includes("standalone") && declarations.length > 1)
+        problems.push(`${promptPath}: standalone conflicts with workflow declaration`);
+      for (const declaration of declarations) {
+        if (declaration !== "standalone" && !workflowByFile.has(declaration))
+          problems.push(`${promptPath}: unknown workflow marker ${declaration}`);
+      }
+      const registered = routesByWorkflow.get(command) || [];
+      if (declarations.includes("standalone") && registered.length > 0)
+        problems.push(`${promptPath}: standalone command is registered in manifest`);
+      for (const file of registered)
+        if (!declarations.includes(file))
+          problems.push(`${promptPath}: manifest registers ${file} without matching marker`);
+      for (const file of declarations.filter((value) => value !== "standalone"))
+        if (!registered.includes(file))
+          problems.push(`${promptPath}: marker ${file} has no manifest registration`);
+    }
+    for (const command of routesByWorkflow.keys()) {
+      if (!promptNames.includes(`${command}.md`))
+        problems.push(`manifest route ${command}: missing prompt`);
+    }
+  } catch (error) {
+    problems.push(error instanceof Error ? error.message : String(error));
+  }
+  addCheck(
+    "workflow-contract-parity",
+    problems.length === 0,
+    `manifest routes, phase packets, and workflow-specific semantics checked; problems=${problems.length}`,
+    problems.slice(0, 8).join("; "),
   );
 }
 
@@ -578,6 +1037,7 @@ function checkSyncScript() {
   const needles = [
     "scripts/pikit-health.mjs",
     "scripts/pikit-pi-sync.mjs",
+    '".pi/subagents.json"',
     ".pi/tasks/",
     ".pi/verify-cache.json",
     ".pi/task-registry.json",
@@ -622,6 +1082,7 @@ checkSkills();
 checkSkillLint();
 checkVendorLock();
 checkPrompts();
+checkWorkflows();
 checkDocsLifecycle();
 checkAgents();
 checkExtensions();

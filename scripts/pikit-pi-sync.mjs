@@ -7,12 +7,15 @@ import {
   statSync,
   writeFileSync,
   copyFileSync,
+  rmSync,
 } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { dirname, join, resolve, sep } from "node:path";
 
 const SHARED_DIRS = [
   ".pi/agents",
   ".pi/prompts",
+  ".pi/workflows",
   ".pi/skills",
   ".pi/themes",
   ".pi/extensions",
@@ -30,6 +33,7 @@ const SHARED_FILES = [
   ".pi/README.md",
   ".pi/version.json",
   ".pi/settings.json",
+  ".pi/subagents.json",
   ".pi/catalog.json",
   ".pi/vendor-lock.json",
   ".pi/package.example.json",
@@ -63,7 +67,7 @@ const EXCLUDED_RELATIVE = new Set([
 
 function usage(exitCode = 0) {
   console.log(
-    `Usage: node scripts/pikit-pi-sync.mjs --target <project-dir> [options]\n\nSync the reusable Pikit .pi pack into another project. Default mode is dry-run.\n\nOptions:\n  --target <dir>     Target project directory to receive .pi resources\n  --source <dir>     Source Pikit repo directory (default: current working directory)\n  --apply            Perform writes (without this, dry-run only)\n  --dry-run          Show planned changes without writing (default)\n  --no-backup        Do not backup changed destination files before overwrite\n  --yes             Skip confirmation prompt safeguards (reserved for automation; no prompt currently used)\n  -h, --help         Show this help\n\nExamples:\n  node scripts/pikit-pi-sync.mjs --target ../other-project\n  node scripts/pikit-pi-sync.mjs --target ../other-project --apply\n`,
+    `Usage: node scripts/pikit-pi-sync.mjs --target <project-dir> [options]\n\nSync the reusable Pikit .pi pack into another project. Default mode is dry-run.\n\nOptions:\n  --target <dir>     Target project directory to receive .pi resources\n  --source <dir>     Source Pikit repo directory (default: current working directory)\n  --apply            Perform writes (without this, dry-run only)\n  --dry-run          Show planned changes without writing (default)\n  --no-backup        Do not backup changed destination files before overwrite\n  --reinstall-deps   Reinstall Pikit-owned npm dependencies after applying\n  -h, --help         Show this help\n\nExamples:\n  node scripts/pikit-pi-sync.mjs --target ../other-project\n  node scripts/pikit-pi-sync.mjs --target ../other-project --apply\n`,
   );
   process.exit(exitCode);
 }
@@ -77,6 +81,7 @@ function parseArgs(argv) {
     else if (arg === "--source") opts.source = argv[++i];
     else if (arg === "--apply") opts.apply = true;
     else if (arg === "--dry-run") opts.apply = false;
+    else if (arg === "--reinstall-deps") opts.reinstallDeps = true;
     else if (arg === "--no-backup") opts.backup = false;
     else if (arg === "--yes") opts.yes = true;
     else throw new Error(`Unknown argument: ${arg}`);
@@ -168,6 +173,30 @@ function copyWithBackup(source, target, rel, opts, stamp, actions) {
   }
 }
 
+function dependencyInstallRoots(source, target) {
+  const roots = [];
+  const npmRoot = join(source, ".pi/npm");
+  if (existsSync(join(npmRoot, "package-lock.json"))) roots.push(".pi/npm");
+  for (const rel of walkFiles(join(source, ".pi/vendor"), ".pi/vendor")) {
+    if (rel.endsWith("/package-lock.json")) roots.push(dirname(rel));
+  }
+  return [...new Set(roots)].sort().map((rel) => join(target, rel));
+}
+
+function reinstallDependencies(source, target, opts, actions) {
+  if (!opts.reinstallDeps) return;
+  for (const root of dependencyInstallRoots(source, target)) {
+    const rel = root.slice(target.length + 1);
+    actions.push({ kind: "reinstall-deps", rel });
+    if (!opts.apply) continue;
+    rmSync(join(root, "node_modules"), { recursive: true, force: true });
+    execFileSync("npm", ["ci", "--ignore-scripts"], {
+      cwd: root,
+      stdio: "inherit",
+    });
+  }
+}
+
 function syncGitignore(target, opts, actions) {
   const rel = ".gitignore";
   const path = join(target, rel);
@@ -210,6 +239,7 @@ function main() {
 
   for (const rel of files) copyWithBackup(opts.source, opts.target, rel, opts, stamp, actions);
   syncGitignore(opts.target, opts, actions);
+  reinstallDependencies(opts.source, opts.target, opts, actions);
 
   const counts = actions.reduce((acc, a) => {
     acc[a.kind] = (acc[a.kind] ?? 0) + 1;
