@@ -42,8 +42,8 @@ Quota units là đơn vị New API thực trừ (ghi vào `logs.quota` và `user
 | Rẻ | `deepseek-v4-pro`, `glm-5.2`, `kimi-2.7`, `grok-4.5` | `0.5` |
 | Rẻ | `grok-4.3` | `0.6` |
 | TOP | `gpt-5.5`, `gpt-5.5-high`, `gpt-5.5-xhigh` | `1.0` |
-| TOP | `gpt-5.6-sol` | `3.0` |
-| TOP | `gpt-5.6-terra` | `2.0` |
+| TOP | `gpt-5.6-sol` | `2.0` |
+| TOP | `gpt-5.6-terra` | `1.5` |
 | TOP | `claude-sonnet-5` | `0.5` |
 | TOP | `claude-opus-4.6/4.7/4.8` (+thinking), KIRO | `1.0` |
 
@@ -51,7 +51,7 @@ Quota units là đơn vị New API thực trừ (ghi vào `logs.quota` và `user
 
 Bảng credit/1M ở trên là **rate tham chiếu (chuẩn theo input)**. Các model premium (`gpt-5.5`, `opus-4.8`) hiện vẫn trừ output nặng hơn input (`p * 1.5 + c * 6` ở tầng `billing_expr`), nên credit output thực tế cao hơn credit input. Việc "phẳng hoá" output về đúng 1.0 cr/1M cho cả input lẫn output là **thay đổi doanh thu lớn** và chỉ áp dụng qua migration riêng khi được duyệt (xem `src/deploy/migration-2026-07-09-credit-billing-flatten.sql`).
 
-`gpt-5.6-sol` (3 cr/1M input) và `gpt-5.6-terra` (2 cr/1M input) dùng cùng cơ chế: input là rate tham chiếu, output vẫn trừ nặng như `gpt-5.5` (6 cr/1M output, tức `c * 12` ở `billing_expr`). Xem `src/deploy/migration-2026-07-10-gpt56-sol-terra.sql`.
+`gpt-5.6-sol` (2 cr/1M input) và `gpt-5.6-terra` (1.5 cr/1M input) dùng cùng cơ chế: input là rate tham chiếu, output vẫn trừ nặng như `gpt-5.5` (6 cr/1M output, tức `c * 12` ở `billing_expr`). Rate ban đầu nằm trong `src/deploy/migration-2026-07-10-gpt56-sol-terra.sql`; mức hiện tại được cập nhật bởi `src/deploy/migration-2026-07-21-gpt56-sol-terra-input-rates.sql`.
 
 ### Migrate số dư
 
@@ -170,8 +170,8 @@ billing_setting.billing_expr = {
   "gpt-5.4": "tier(\"openai_price_gpt54\", p * 1 + c * 6)",
   "gpt-5.5": "tier(\"openai_price_gpt55\", p * 3 + c * 12)",
   "gpt-5.5-xhigh": "tier(\"openai_price_gpt55\", p * 3 + c * 12)",
-  "gpt-5.6-sol": "c <= 0 ? tier(\"zero_output\", 0) : (tier(\"openai_price_gpt55\", p * 6 + c * 12))",
-  "gpt-5.6-terra": "c <= 0 ? tier(\"zero_output\", 0) : (tier(\"openai_price_gpt55\", p * 4 + c * 12))",
+  "gpt-5.6-sol": "c <= 0 ? tier(\"zero_output\", 0) : (tier(\"openai_price_gpt55\", p * 4 + c * 12))",
+  "gpt-5.6-terra": "c <= 0 ? tier(\"zero_output\", 0) : (tier(\"openai_price_gpt55\", p * 3 + c * 12))",
   "opus-4.8": "tier(\"openai_price_gpt55\", p * 3 + c * 12)",
   "opus-4.8-thinking": "tier(\"openai_price_gpt55\", p * 3 + c * 12)",
   "claude-opus-4.8": "tier(\"openai_price_gpt55\", p * 3 + c * 12)",
@@ -182,7 +182,7 @@ billing_setting.billing_expr = {
 }
 ```
 
-`gpt-5.5`/`gpt-5.5-xhigh` và `opus-4.8`/`opus-4.8-thinking`/`claude-opus-4.8`/`claude-opus-4.8-thinking` hiện chốt input 1.5x (`p * 3`, đổi từ 1.2x ngày 2026-07-12), output 6x. `gpt-5.6-sol` chốt input 3.0x (`p * 6`), `gpt-5.6-terra` input 2.0x (`p * 4`), cả hai output 6x (`c * 12`) như `gpt-5.5`. Các model chưa có bảng giá nguồn/chiến lược pricing đã chốt (`minimax-m3`, `glm-5.2`, `glm-5.1`) tạm giữ nguyên.
+`gpt-5.5`/`gpt-5.5-xhigh` và `opus-4.8`/`opus-4.8-thinking`/`claude-opus-4.8`/`claude-opus-4.8-thinking` hiện chốt input 1.5x (`p * 3`, đổi từ 1.2x ngày 2026-07-12), output 6x. `gpt-5.6-sol` chốt input 2.0x (`p * 4`), `gpt-5.6-terra` input 1.5x (`p * 3`), cả hai output 6x (`c * 12`) như `gpt-5.5`. Các model chưa có bảng giá nguồn/chiến lược pricing đã chốt (`minimax-m3`, `glm-5.2`, `glm-5.1`) tạm giữ nguyên.
 
 ### Runtime target 2026-07-12 (input 1.5x)
 
