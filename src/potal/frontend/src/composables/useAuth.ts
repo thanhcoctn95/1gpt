@@ -1,12 +1,11 @@
 import { computed, ref } from 'vue'
-import type { AdminLoginResult } from '@/services/api'
+import { logoutAdmin as revokeAdminSession, type AdminLoginResult } from '@/services/api'
 
 const USER_KEY = 'potalUserApiKey'
 const ADMIN_TOKEN_KEY = 'potalAdminToken'
 const ADMIN_USER_KEY = 'potalAdminUser'
 
 const userApiKey = ref<string>(localStorage.getItem(USER_KEY) || '')
-
 const adminToken = ref<string>(localStorage.getItem(ADMIN_TOKEN_KEY) || '')
 const adminUser = ref<AdminLoginResult['user'] | null>(readAdminUser())
 
@@ -19,6 +18,20 @@ function readAdminUser(): AdminLoginResult['user'] | null {
   }
 }
 
+function persistAdminSession(result: AdminLoginResult) {
+  adminToken.value = result.adminToken
+  adminUser.value = result.user
+  localStorage.setItem(ADMIN_TOKEN_KEY, result.adminToken)
+  localStorage.setItem(ADMIN_USER_KEY, JSON.stringify(result.user))
+}
+
+function clearAdminSession() {
+  adminToken.value = ''
+  adminUser.value = null
+  localStorage.removeItem(ADMIN_TOKEN_KEY)
+  localStorage.removeItem(ADMIN_USER_KEY)
+}
+
 export function useAuth() {
   const isUserAuthed = computed(() => Boolean(userApiKey.value))
   const isAdminAuthed = computed(() => Boolean(adminToken.value))
@@ -29,33 +42,16 @@ export function useAuth() {
     else localStorage.removeItem(USER_KEY)
   }
 
-  function logoutUser() {
-    setUserApiKey('')
-  }
-
-  function setAdminSession(result: AdminLoginResult) {
-    adminToken.value = result.adminToken
-    adminUser.value = result.user
-    localStorage.setItem(ADMIN_TOKEN_KEY, result.adminToken)
-    localStorage.setItem(ADMIN_USER_KEY, JSON.stringify(result.user))
-  }
-
+  function logoutUser() { setUserApiKey('') }
+  function setAdminSession(result: AdminLoginResult) { persistAdminSession(result) }
   function logoutAdmin() {
-    adminToken.value = ''
-    adminUser.value = null
-    localStorage.removeItem(ADMIN_TOKEN_KEY)
-    localStorage.removeItem(ADMIN_USER_KEY)
+    void revokeAdminSession().catch(() => undefined)
+    clearAdminSession()
   }
 
-  return {
-    userApiKey,
-    adminToken,
-    adminUser,
-    isUserAuthed,
-    isAdminAuthed,
-    setUserApiKey,
-    logoutUser,
-    setAdminSession,
-    logoutAdmin,
+  function handleAdminSessionExpired() {
+    clearAdminSession()
   }
+
+  return { userApiKey, adminToken, adminUser, isUserAuthed, isAdminAuthed, setUserApiKey, logoutUser, setAdminSession, logoutAdmin, handleAdminSessionExpired }
 }

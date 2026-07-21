@@ -245,8 +245,48 @@ export class ApiError extends Error {
   }
 }
 
-async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
-  const response = await fetch(path, init)
+let adminRefreshPromise: Promise<string> | null = null
+
+async function refreshExpiredAdminToken(): Promise<string> {
+  if (!adminRefreshPromise) {
+    adminRefreshPromise = fetch('/api/admin/refresh', {
+      method: 'POST',
+      credentials: 'include',
+    })
+      .then(async (response) => {
+        const json = await response.json().catch(() => null)
+        if (!response.ok || !json?.data) throw new ApiError(json?.message || 'Admin session expired', response.status)
+        const result = json.data as AdminLoginResult
+        localStorage.setItem('potalAdminToken', result.adminToken)
+        localStorage.setItem('potalAdminUser', JSON.stringify(result.user))
+        window.dispatchEvent(new CustomEvent('admin-session-refreshed', { detail: result }))
+        return result.adminToken
+      })
+      .catch((error) => {
+        localStorage.removeItem('potalAdminToken')
+        localStorage.removeItem('potalAdminUser')
+        window.dispatchEvent(new CustomEvent('admin-session-expired'))
+        throw error
+      })
+      .finally(() => {
+        adminRefreshPromise = null
+      })
+  }
+  return adminRefreshPromise
+}
+
+async function request<T>(path: string, init: RequestInit = {}, retry = true): Promise<T> {
+  const headers = new Headers(init.headers)
+  if (path.startsWith('/api/admin/') && headers.has('authorization')) {
+    const currentToken = localStorage.getItem('potalAdminToken')
+    if (currentToken) headers.set('authorization', `Bearer ${currentToken}`)
+  }
+  const response = await fetch(path, { ...init, headers, credentials: 'include' })
+  if (response.status === 401 && retry && path.startsWith('/api/admin/') && path !== '/api/admin/login' && path !== '/api/admin/refresh') {
+    const token = await refreshExpiredAdminToken()
+    headers.set('authorization', `Bearer ${token}`)
+    return request<T>(path, { ...init, headers }, false)
+  }
   let json: any = null
   try {
     json = await response.json()
@@ -346,7 +386,11 @@ export const loginAdmin = (payload: { username: string; password: string }) =>
     body: JSON.stringify(payload),
   })
 
-// ---- admin: users ----
+
+export const logoutAdmin = () =>
+  fetch('/api/admin/logout', { method: 'POST', credentials: 'include' })
+
+
 export const getProvisionedUsers = (apiKey: string) =>
   request<ProvisionedUserRow[]>('/api/admin/provisioned-users', { headers: authHeaders(apiKey) })
 

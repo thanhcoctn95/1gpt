@@ -54,6 +54,11 @@ spec:
                 configMapKeyRef:
                   name: oneapi-config
                   key: NEW_API_PUBLIC_BASE_URL
+            - name: PORTAL_TRUST_FORWARDED_FOR
+              valueFrom:
+                configMapKeyRef:
+                  name: oneapi-config
+                  key: PORTAL_TRUST_FORWARDED_FOR
             - name: NEW_API_POSTGRES_DB
               valueFrom:
                 secretKeyRef:

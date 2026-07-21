@@ -10,6 +10,7 @@ import java.util.ArrayDeque;
 import java.util.Deque;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
@@ -17,14 +18,18 @@ import org.springframework.web.filter.OncePerRequestFilter;
 public class ApiSecurity extends OncePerRequestFilter {
     private static final long WINDOW_MILLIS = 60_000;
     private static final Map<String, Deque<Long>> REQUESTS = new ConcurrentHashMap<>();
+    private final boolean trustForwardedFor;
+
+    public ApiSecurity(@Value("${portal.security.trust-forwarded-for:false}") boolean trustForwardedFor) {
+        this.trustForwardedFor = trustForwardedFor;
+    }
 
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain) throws ServletException, IOException {
         addSecurityHeaders(response);
         if (request.getRequestURI().startsWith("/api/")) {
-            int limit = limitFor(request.getRequestURI(), request.getMethod());
-            String key = clientIp(request) + ":" + routeFamily(request.getRequestURI());
-            if (!allow(key, limit)) {
+            String family = routeFamily(request.getRequestURI());
+            if (!allow(clientIp(request) + ":" + family, limitFor(family, request.getMethod()))) {
                 response.setStatus(429);
                 response.setContentType("application/json");
                 response.getWriter().write("{\"success\":false,\"message\":\"Too many requests\"}");
@@ -43,23 +48,29 @@ public class ApiSecurity extends OncePerRequestFilter {
         response.setHeader("Content-Security-Policy", "default-src 'self'; frame-ancestors 'none'");
     }
 
-    private static int limitFor(String uri, String method) {
-        if (uri.equals("/api/dashboard/test")) return 20;
-        if (uri.contains("/model-limits") || "PATCH".equalsIgnoreCase(method)) return 30;
-        if (uri.startsWith("/api/dashboard/")) return 120;
+    private static int limitFor(String family, String method) {
+        if (family.equals("admin-login")) return 10;
+        if (family.equals("admin-refresh")) return 30;
+        if (family.equals("dashboard-test")) return 20;
+        if (family.equals("admin-write") || "PATCH".equalsIgnoreCase(method)) return 30;
+        if (family.equals("dashboard")) return 120;
         return 90;
     }
 
     private static String routeFamily(String uri) {
+        if (uri.equals("/api/admin/login")) return "admin-login";
+        if (uri.equals("/api/admin/refresh")) return "admin-refresh";
         if (uri.startsWith("/api/dashboard/test")) return "dashboard-test";
         if (uri.startsWith("/api/dashboard/")) return "dashboard";
-        if (uri.startsWith("/api/tokens/") || uri.startsWith("/api/users/") || uri.startsWith("/api/models/available")) return "admin";
+        if (uri.startsWith("/api/admin/")) return "admin-write";
         return "api";
     }
 
-    private static String clientIp(HttpServletRequest request) {
-        String forwarded = request.getHeader("X-Forwarded-For");
-        if (forwarded != null && !forwarded.isBlank()) return forwarded.split(",")[0].trim();
+    private String clientIp(HttpServletRequest request) {
+        if (trustForwardedFor) {
+            String forwarded = request.getHeader("X-Forwarded-For");
+            if (forwarded != null && !forwarded.isBlank()) return forwarded.split(",")[0].trim();
+        }
         return request.getRemoteAddr();
     }
 

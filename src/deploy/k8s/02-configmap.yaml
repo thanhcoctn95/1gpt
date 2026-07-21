@@ -12,3 +12,5 @@ data:
   NEW_API_BASE_URL: "http://new-api:3000"
   NEW_API_PUBLIC_BASE_URL: "https://new.api.1api.click"
   PORTAL_BACKEND_PORT: "8081"
+  # Keep false unless the direct proxy overwrites X-Forwarded-For before forwarding.
+  PORTAL_TRUST_FORWARDED_FOR: "false"

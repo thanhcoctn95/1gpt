@@ -10,6 +10,7 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Table, TableBody, TableCell, TableEmpty, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { useAuth } from '@/composables/useAuth'
+import { formatCreditRate, portalModelCreditRates } from '@/lib/format'
 import { ApiError, getAdminModels, setModelActive } from '@/services/api'
 import type { AdminModelRow } from '@/services/api'
 
@@ -34,6 +35,10 @@ function channelList(channels: string): string[] {
     .split(',')
     .map((channel) => channel.trim())
     .filter(Boolean)
+}
+
+function modelRates(modelName: string) {
+  return portalModelCreditRates(modelName)
 }
 
 async function fetchModels() {
@@ -101,6 +106,8 @@ onMounted(fetchModels)
               <TableHead>{{ t('admin.models.model') }}</TableHead>
               <TableHead>{{ t('admin.models.description') }}</TableHead>
               <TableHead>{{ t('admin.models.channels') }}</TableHead>
+              <TableHead class="text-right">{{ t('admin.models.inputRate') }}</TableHead>
+              <TableHead class="text-right">{{ t('admin.models.outputRate') }}</TableHead>
               <TableHead>{{ t('common.status') }}</TableHead>
               <TableHead class="text-right">{{ t('common.actions') }}</TableHead>
             </TableRow>
@@ -111,11 +118,13 @@ onMounted(fetchModels)
                 <TableCell><Skeleton class="h-4 w-44" /></TableCell>
                 <TableCell><Skeleton class="h-4 w-64" /></TableCell>
                 <TableCell><Skeleton class="h-4 w-36" /></TableCell>
+                <TableCell><Skeleton class="ml-auto h-4 w-16" /></TableCell>
+                <TableCell><Skeleton class="ml-auto h-4 w-16" /></TableCell>
                 <TableCell><Skeleton class="h-6 w-20" /></TableCell>
                 <TableCell><Skeleton class="ml-auto h-8 w-28" /></TableCell>
               </TableRow>
             </template>
-            <TableEmpty v-else-if="models.length === 0" :colspan="5" class="text-muted-foreground">
+            <TableEmpty v-else-if="models.length === 0" :colspan="7" class="text-muted-foreground">
               {{ t('common.noData') }}
             </TableEmpty>
             <TableRow v-for="model in models" v-else :key="model.model_name">
@@ -128,6 +137,12 @@ onMounted(fetchModels)
                   </Badge>
                   <span v-if="channelList(model.channels).length === 0" class="text-muted-foreground">—</span>
                 </div>
+              </TableCell>
+              <TableCell class="text-right tabular-nums">
+                {{ modelRates(model.model_name) ? `${formatCreditRate(modelRates(model.model_name)!.input)}×` : '—' }}
+              </TableCell>
+              <TableCell class="text-right tabular-nums">
+                {{ modelRates(model.model_name) ? `${formatCreditRate(modelRates(model.model_name)!.output)}×` : '—' }}
               </TableCell>
               <TableCell>
                 <Badge :variant="model.status === 1 ? 'secondary' : 'outline'">

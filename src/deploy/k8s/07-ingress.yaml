@@ -15,13 +15,6 @@ spec:
     - host: 1api.click
       http:
         paths:
-          - path: /admin
-            pathType: Prefix
-            backend:
-              service:
-                name: new-api-user-portal
-                port:
-                  number: 3010
           - path: /
             pathType: Prefix
             backend:

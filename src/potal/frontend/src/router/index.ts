@@ -20,6 +20,7 @@ const routes: RouteRecordRaw[] = [
       { path: 'overview', name: 'user-overview', component: () => import('@/views/user/UserOverview.vue') },
       { path: 'models', name: 'user-models', component: () => import('@/views/user/UserModels.vue') },
       { path: 'plans', name: 'user-plans', component: () => import('@/views/user/UserPlans.vue') },
+      { path: 'guide', name: 'user-guide', component: () => import('@/views/user/UserGuide.vue') },
       { path: 'logs', name: 'user-logs', component: () => import('@/views/user/UserLogs.vue') },
     ],
   },
@@ -63,4 +64,13 @@ router.beforeEach((to) => {
     return { name: 'admin-login', query: { redirect: to.fullPath } }
   }
   return true
+})
+
+window.addEventListener('admin-session-expired', () => {
+  const { handleAdminSessionExpired } = useAuth()
+  handleAdminSessionExpired()
+  const current = router.currentRoute.value
+  if (current.meta.section === 'admin' && current.name !== 'admin-login') {
+    void router.replace({ name: 'admin-login', query: { redirect: current.fullPath } })
+  }
 })

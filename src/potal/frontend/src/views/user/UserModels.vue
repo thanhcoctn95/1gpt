@@ -26,7 +26,7 @@ import {
 } from '@/components/ui/table'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useAuth } from '@/composables/useAuth'
-import { formatNumber, formatCreditRate } from '@/lib/format'
+import { formatNumber, formatCreditRate, portalModelCreditRates } from '@/lib/format'
 import {
   getDashboardModels,
   getModelRatios,
@@ -64,15 +64,18 @@ const rows = computed(() =>
     const completionRatio = Number(r?.completion_ratio ?? 1)
     // Credits per 1M tokens. Internally 1M tokens at ratio 1.0 drains 1M quota = 1 credit,
     // so credits/1M input == model_ratio and credits/1M output == model_ratio × completion_ratio.
-    const creditInputPerM = ratio
-    const creditOutputPerM = ratio * completionRatio
+    const runtimeInputPerM = ratio
+    const runtimeOutputPerM = ratio * completionRatio
+    const rates = portalModelCreditRates(m.model_name, {
+      input: runtimeInputPerM,
+      output: runtimeOutputPerM,
+    })!
     return {
       model_name: m.model_name,
       description: m.description,
-      ratio,
-      completionRatio,
-      creditInputPerM,
-      creditOutputPerM,
+      ratio: rates.input,
+      creditInputPerM: rates.input,
+      creditOutputPerM: rates.output,
     }
   }),
 )
