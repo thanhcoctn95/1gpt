@@ -12,6 +12,7 @@ import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
+  useSidebar,
 } from '@/components/ui/sidebar'
 import PortalUserMenu from './PortalUserMenu.vue'
 
@@ -31,6 +32,11 @@ defineProps<{
 }>()
 
 const route = useRoute()
+const { isMobile, setOpenMobile } = useSidebar()
+
+function closeMobileNavigation() {
+  if (isMobile.value) setOpenMobile(false)
+}
 </script>
 
 <template>
@@ -39,7 +45,7 @@ const route = useRoute()
       <SidebarMenu>
         <SidebarMenuItem>
           <SidebarMenuButton size="lg" as-child class="data-[slot=sidebar-menu-button]:!p-1.5">
-            <RouterLink :to="items[0]?.to || '/'">
+            <RouterLink :to="items[0]?.to || '/'" @click="closeMobileNavigation">
               <IconInnerShadowTop class="!size-5" />
               <span class="flex flex-col leading-tight">
                 <span class="text-base font-semibold">{{ title }}</span>
@@ -61,7 +67,7 @@ const route = useRoute()
                 :tooltip="item.title"
                 :is-active="route.path.startsWith(item.to)"
               >
-                <RouterLink :to="item.to">
+                <RouterLink :to="item.to" @click="closeMobileNavigation">
                   <component :is="item.icon" v-if="item.icon" />
                   <span>{{ item.title }}</span>
                 </RouterLink>
