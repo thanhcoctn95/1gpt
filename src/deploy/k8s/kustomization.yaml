@@ -18,4 +18,4 @@ images:
     newTag: "20260720-172209-auth-hardened-amd64"
   - name: registry.inviv.vn/oneapi/potal-frontend
     newName: registry.inviv.vn/oneapi/potal-frontend
-    newTag: "20260721-183724-official-doc-links-amd64"
+    newTag: "20260722-091850-model-credit-rates-amd64"

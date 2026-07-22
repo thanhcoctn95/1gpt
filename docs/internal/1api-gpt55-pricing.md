@@ -9,7 +9,7 @@ Tài liệu này là source of truth nội bộ cho bảng giá **1GPT / 1API GP
 ## Nguyên tắc chuẩn hoá
 
 - **Token user-facing:** số dư và usage hiển thị theo token/quota đã tính phí. Không dùng lớp quy đổi riêng trên portal.
-- **User quota:** trừ theo OpenAI-style input/output weighting để tối đa hoá lợi nhuận: `gpt-5.5`, `gpt-5.5-xhigh`, `opus-4.8`, `opus-4.8-thinking`, `claude-opus-4.8`, `claude-opus-4.8-thinking` input `1.5x`/output `6x` (đổi từ `1.2x` ngày 2026-07-12); `gpt-5.4` input `0.5x`/output `3x`; GLM giữ rate tiết kiệm hiện tại.
+- **User quota:** trừ theo OpenAI-style input/output weighting để tối đa hoá lợi nhuận: `gpt-5.5`, `gpt-5.5-xhigh` input `1.2x`/output `6x`; `opus-4.8`, `opus-4.8-thinking`, `claude-opus-4.8`, `claude-opus-4.8-thinking` input `2.0x`/output `6x`; `claude-sonnet-5` input `1.0x`/output `0.5x`; `gpt-5.4` input `0.5x`/output `3x`; GLM giữ rate tiết kiệm hiện tại.
 - **Source/VietAPI cost:** chỉ dùng nội bộ để tính margin/profit; không quyết định trực tiếp số dư user bị trừ và không hiển thị public.
 - **Gói tháng:** token quota reset hằng ngày, không cộng dồn.
 - **Gói one-time:** mua một lần, dùng đến khi hết, không reset, không hết hạn trong thực tế vận hành.
@@ -28,7 +28,7 @@ Từ 2026-07-09, mọi bề mặt user/admin của portal hiển thị chi phí 
 1 credit = 1.000.000 quota units nội bộ
 ```
 
-Quota units là đơn vị New API thực trừ (ghi vào `logs.quota` và `user_subscriptions.amount_*`). Vì `gpt-5.5` input có ratio `1.0` (1 token input = 1 quota unit), 1 credit tương đương chi phí của **1M token input gpt-5.5** — khớp cách gọi "1.0 cr/1M token" trên web pricing.
+Quota units là đơn vị New API thực trừ (ghi vào `logs.quota` và `user_subscriptions.amount_*`). Theo quy ước hiển thị, `1 credit = 1.000.000 quota units`. Rate từng model được hiển thị riêng theo `billing_expr`; `gpt-5.5` hiện có input rate `1.2 credit / 1M token`.
 
 ### Quy đổi
 
@@ -41,15 +41,15 @@ Quota units là đơn vị New API thực trừ (ghi vào `logs.quota` và `user
 | Rẻ | `glm-5.1`, `kimi-k2.6` | `0.25` |
 | Rẻ | `deepseek-v4-pro`, `glm-5.2`, `kimi-2.7`, `grok-4.5` | `0.5` |
 | Rẻ | `grok-4.3` | `0.6` |
-| TOP | `gpt-5.5`, `gpt-5.5-high`, `gpt-5.5-xhigh` | `1.0` |
+| TOP | `gpt-5.5`, `gpt-5.5-xhigh` | `1.2` |
 | TOP | `gpt-5.6-sol` | `2.0` |
 | TOP | `gpt-5.6-terra` | `1.5` |
-| TOP | `claude-sonnet-5` | `0.5` |
-| TOP | `claude-opus-4.6/4.7/4.8` (+thinking), KIRO | `1.0` |
+| TOP | `claude-sonnet-5` | `1.0` |
+| TOP | `claude-opus-4.8` (+thinking aliases) | `2.0` |
 
 ### Lưu ý về input/output weighting
 
-Bảng credit/1M ở trên là **rate tham chiếu (chuẩn theo input)**. Các model premium (`gpt-5.5`, `opus-4.8`) hiện vẫn trừ output nặng hơn input (`p * 1.5 + c * 6` ở tầng `billing_expr`), nên credit output thực tế cao hơn credit input. Việc "phẳng hoá" output về đúng 1.0 cr/1M cho cả input lẫn output là **thay đổi doanh thu lớn** và chỉ áp dụng qua migration riêng khi được duyệt (xem `src/deploy/migration-2026-07-09-credit-billing-flatten.sql`).
+Bảng credit/1M ở trên là **rate tham chiếu (chuẩn theo input)**. Các model premium vẫn tách input/output: GPT-5.5 dùng `p * 1.2 + c * 6`, Opus 4.8 dùng `p * 2 + c * 6`, và Sonnet 5 dùng `p * 1 + c * 0.5` ở tầng `billing_expr`, nên credit output thực tế cao hơn credit input. Việc "phẳng hoá" output về đúng 1.0 cr/1M cho cả input lẫn output là **thay đổi doanh thu lớn** và chỉ áp dụng qua migration riêng khi được duyệt (xem `src/deploy/migration-2026-07-09-credit-billing-flatten.sql`).
 
 `gpt-5.6-sol` (2 cr/1M input) và `gpt-5.6-terra` (1.5 cr/1M input) dùng cùng cơ chế: input là rate tham chiếu, output vẫn trừ nặng như `gpt-5.5` (6 cr/1M output, tức `c * 12` ở `billing_expr`). Rate ban đầu nằm trong `src/deploy/migration-2026-07-10-gpt56-sol-terra.sql`; mức hiện tại được cập nhật bởi `src/deploy/migration-2026-07-21-gpt56-sol-terra-input-rates.sql`.
 
@@ -92,9 +92,9 @@ Theo OpenAI API pricing đã kiểm tra ngày 2026-06-28:
 
 | Model                 | OpenAI-style input / 1M | OpenAI-style cached input / 1M | OpenAI-style output / 1M | User quota rule   |
 | --------------------- | ----------------------: | -----------------------------: | -----------------------: | ----------------- |
-| `gpt-5.5`             |                 `$5.00` |                        `$0.50` |                 `$30.00` | `p * 1.5 + c * 6` |
-| `gpt-5.5-xhigh`       |                 `$5.00` |                        `$0.50` |                 `$30.00` | `p * 1.5 + c * 6` |
-| `opus-4.8-thinking`   |                 `$5.00` |                        `$0.50` |                 `$30.00` | `p * 1.5 + c * 6` |
+| `gpt-5.5`             |                 `$5.00` |                        `$0.50` |                 `$30.00` | `p * 1.2 + c * 6` |
+| `gpt-5.5-xhigh`       |                 `$5.00` |                        `$0.50` |                 `$30.00` | `p * 1.2 + c * 6` |
+| `claude-opus-4.8`     |                 `$5.00` |                        `$0.50` |                 `$30.00` | `p * 2.0 + c * 6` |
 | `gpt-5.4`             |                 `$2.50` |                        `$0.25` |                 `$15.00` | `p * 0.5 + c * 3` |
 
 User quota examples:
@@ -102,11 +102,11 @@ User quota examples:
 ```text
 gpt-5.5 / gpt-5.5-xhigh
 prompt_tokens=1000, completion_tokens=500
-user_quota = 1000 * 1.5 + 500 * 6 = 4500 billed token
+user_quota = 1000 * 1.2 + 500 * 6 = 4200 billed token
 
-opus-4.8-thinking
+claude-opus-4.8 (+ aliases/thinking)
 prompt_tokens=1000, completion_tokens=500
-user_quota = 1000 * 1.5 + 500 * 6 = 4500 billed token
+user_quota = 1000 * 2.0 + 500 * 6 = 5000 billed token
 
 gpt-5.4 prompt_tokens=1000, completion_tokens=500
 user_quota = 1000 * 0.5 + 500 * 3 = 2000 billed token
@@ -120,7 +120,7 @@ Nếu nguồn model thực tế tính raw token 1:1 cho `gpt-5.5*` và `opus-4.8
 
 ```text
 internal_cost_units ~= prompt_tokens + completion_tokens
-user_charged_tokens = prompt_tokens * 1.5 + completion_tokens * 6  -- gpt-5.5*/Claude current hiện tại
+user_charged_tokens = prompt_tokens * input_rate + completion_tokens * output_rate
 profit_spread_units = user_charged_tokens - internal_cost_units
 ```
 
@@ -168,25 +168,26 @@ billing_setting.billing_mode = {
 
 billing_setting.billing_expr = {
   "gpt-5.4": "tier(\"openai_price_gpt54\", p * 1 + c * 6)",
-  "gpt-5.5": "tier(\"openai_price_gpt55\", p * 3 + c * 12)",
-  "gpt-5.5-xhigh": "tier(\"openai_price_gpt55\", p * 3 + c * 12)",
+  "gpt-5.5": "tier(\"openai_price_gpt55\", p * 2.4 + c * 12)",
+  "gpt-5.5-xhigh": "tier(\"openai_price_gpt55\", p * 2.4 + c * 12)",
   "gpt-5.6-sol": "c <= 0 ? tier(\"zero_output\", 0) : (tier(\"openai_price_gpt55\", p * 4 + c * 12))",
   "gpt-5.6-terra": "c <= 0 ? tier(\"zero_output\", 0) : (tier(\"openai_price_gpt55\", p * 3 + c * 12))",
-  "opus-4.8": "tier(\"openai_price_gpt55\", p * 3 + c * 12)",
-  "opus-4.8-thinking": "tier(\"openai_price_gpt55\", p * 3 + c * 12)",
-  "claude-opus-4.8": "tier(\"openai_price_gpt55\", p * 3 + c * 12)",
-  "claude-opus-4.8-thinking": "tier(\"openai_price_gpt55\", p * 3 + c * 12)",
+  "opus-4.8": "tier(\"openai_price_gpt55\", p * 4 + c * 12)",
+  "opus-4.8-thinking": "tier(\"openai_price_gpt55\", p * 4 + c * 12)",
+  "claude-opus-4.8": "tier(\"openai_price_gpt55\", p * 4 + c * 12)",
+  "claude-opus-4.8-thinking": "tier(\"openai_price_gpt55\", p * 4 + c * 12)",
+  "claude-sonnet-5": "tier(\"user_token_0_5x\", p * 2 + c * 1)",
   "minimax-m3": "tier(\"user_token_1x\", p * 2 + c * 2)",
   "glm-5.2": "tier(\"user_token_0_5x\", p * 1 + c * 1)",
   "glm-5.1": "tier(\"user_token_0_25x\", p * 0.5 + c * 0.5)"
 }
 ```
 
-`gpt-5.5`/`gpt-5.5-xhigh` và `opus-4.8`/`opus-4.8-thinking`/`claude-opus-4.8`/`claude-opus-4.8-thinking` hiện chốt input 1.5x (`p * 3`, đổi từ 1.2x ngày 2026-07-12), output 6x. `gpt-5.6-sol` chốt input 2.0x (`p * 4`), `gpt-5.6-terra` input 1.5x (`p * 3`), cả hai output 6x (`c * 12`) như `gpt-5.5`. Các model chưa có bảng giá nguồn/chiến lược pricing đã chốt (`minimax-m3`, `glm-5.2`, `glm-5.1`) tạm giữ nguyên.
+`gpt-5.5`/`gpt-5.5-xhigh` hiện chốt input 1.2x (`p * 2.4`), output 6x. `opus-4.8`/`opus-4.8-thinking`/`claude-opus-4.8`/`claude-opus-4.8-thinking` chốt input 2.0x (`p * 4`), output 6x. `claude-sonnet-5` chốt input 1.0x (`p * 2`), output 0.5x (`c * 1`). Các mức này được cập nhật bởi `src/deploy/migration-2026-07-21-model-input-credit-rates.sql`. `gpt-5.6-sol` chốt input 2.0x (`p * 4`), `gpt-5.6-terra` input 1.5x (`p * 3`), cả hai output 6x (`c * 12`) như `gpt-5.5`. Các model chưa có bảng giá nguồn/chiến lược pricing đã chốt (`minimax-m3`, `glm-5.2`, `glm-5.1`) tạm giữ nguyên.
 
-### Runtime target 2026-07-12 (input 1.5x)
+### Runtime target 2026-07-21
 
-GPT-5.5/Claude current input target là `1.5x` (`p * 3`), nâng từ `1.2x`. Applied to prod `inviv-k8s`/`oneapi` via `src/deploy/migration-2026-07-12-gpt55-opus48-input-1_5x.sql` — additive merge of `billing_setting.billing_expr`, six models only, output `c * 12` unchanged, zero-output guard preserved. Verified: exactly six keys changed `p * 2.4` → `p * 3`; other 11 model entries byte-identical.
+GPT-5.5 input `1.2x`; Opus 4.8 aliases input `2.0x`; Sonnet 5 input `1.0x`. Output giữ lần lượt `6x`, `6x`, `0.5x`. Migration: `src/deploy/migration-2026-07-21-model-input-credit-rates.sql`.
 
 #### Historical: runtime target 2026-07-01 (input 1.2x)
 
@@ -194,11 +195,11 @@ GPT-5.5/Claude current input target khi đó là `1.2x`. Migration `src/deploy/m
 
 | Surface | Runtime state |
 | --- | --- |
-| Frontend image | Public portal derives display from `billing_expr`; no frontend rebuild required for the 1.5x change |
+| Frontend image | Portal có explicit display override tương ứng migration; cần build/deploy frontend để hiển thị ngay |
 | Kubernetes deployment | DB-only change; New API has `MEMORY_CACHE_ENABLED=true`, picks up option changes without restart |
-| DB migration | `src/deploy/migration-2026-07-12-gpt55-opus48-input-1_5x.sql`; applied manually to `new-api-postgres` |
-| Runtime billing expr | GPT 5.5 and current Claude/Opus aliases = `tier("openai_price_gpt55", p * 3 + c * 12)` |
-| Public portal | Derived display should read `Input 1.5x · Output 6x` |
+| DB migration | `src/deploy/migration-2026-07-21-model-input-credit-rates.sql`; apply manually to `new-api-postgres` |
+| Runtime billing expr | GPT `p * 2.4 + c * 12`; Opus aliases `p * 4 + c * 12`; Sonnet `p * 2 + c * 1` |
+| Public portal | GPT `Input 1.2x`; Opus `Input 2x`; Sonnet `Input 1x`, with existing outputs preserved |
 | Known infra note | `https://api.1api.click/api/status` currently has external TLS/cert mismatch; in-cluster `http://new-api:3000/api/status` responds OK. |
 
 Deployment reminder: `src/deploy/deploy.sh` only applies Kubernetes manifests and waits for rollouts. It does **not** auto-run SQL migration files. Apply billing migrations separately with `psql` against `new-api-postgres`.
@@ -224,16 +225,16 @@ select
   completion_tokens,
   quota,
   case
-    when model_name like 'gpt-5.5%' then round(prompt_tokens * 1.5 + completion_tokens * 6.0)
-    when model_name in ('opus-4.8','opus-4.8-thinking','claude-opus-4.8','claude-opus-4.8-thinking') then round(prompt_tokens * 1.5 + completion_tokens * 6.0)
+    when model_name in ('gpt-5.5','gpt-5.5-xhigh') then round(prompt_tokens * 1.2 + completion_tokens * 6.0)
+    when model_name in ('opus-4.8','opus-4.8-thinking','claude-opus-4.8','claude-opus-4.8-thinking') then round(prompt_tokens * 2.0 + completion_tokens * 6.0)
     when model_name = 'gpt-5.4' then round(prompt_tokens * 0.5 + completion_tokens * 3.0)
     when model_name = 'glm-5.2' then round((prompt_tokens + completion_tokens) * 0.5)
     when model_name = 'glm-5.1' then round((prompt_tokens + completion_tokens) * 0.25)
     else prompt_tokens + completion_tokens
   end as expected_quota,
   quota - case
-    when model_name like 'gpt-5.5%' then round(prompt_tokens * 1.5 + completion_tokens * 6.0)
-    when model_name in ('opus-4.8','opus-4.8-thinking','claude-opus-4.8','claude-opus-4.8-thinking') then round(prompt_tokens * 1.5 + completion_tokens * 6.0)
+    when model_name in ('gpt-5.5','gpt-5.5-xhigh') then round(prompt_tokens * 1.2 + completion_tokens * 6.0)
+    when model_name in ('opus-4.8','opus-4.8-thinking','claude-opus-4.8','claude-opus-4.8-thinking') then round(prompt_tokens * 2.0 + completion_tokens * 6.0)
     when model_name = 'gpt-5.4' then round(prompt_tokens * 0.5 + completion_tokens * 3.0)
     when model_name = 'glm-5.2' then round((prompt_tokens + completion_tokens) * 0.5)
     when model_name = 'glm-5.1' then round((prompt_tokens + completion_tokens) * 0.25)
@@ -508,4 +509,5 @@ Câu chốt:
   - `src/deploy/migration-2026-06-29-gpt55-claude48-input-1_5x.sql` — historical GPT/Claude input 1.5x migration; superseded by later overrides.
   - `src/deploy/migration-2026-06-30-gpt55-input-1x.sql` — historical GPT-5.5/GPT-5.5 X-HIGH input 1x override.
   - `src/deploy/migration-2026-07-01-gpt55-claude48-input-1_2x.sql` — historical GPT-5.5 and Claude/Opus 4.8 input 1.2x override; superseded by the 2026-07-12 1.5x migration.
-  - `src/deploy/migration-2026-07-12-gpt55-opus48-input-1_5x.sql` — current target GPT-5.5 and Claude/Opus 4.8 input 1.5x override (`p * 3`, output `c * 12` unchanged). Applied to prod 2026-07-12.
+  - `src/deploy/migration-2026-07-12-gpt55-opus48-input-1_5x.sql` — historical GPT-5.5 and Claude/Opus 4.8 input 1.5x override; superseded by the 2026-07-21 model input-rate migration.
+  - `src/deploy/migration-2026-07-21-model-input-credit-rates.sql` — current GPT-5.5 input 1.2x, Opus 4.8 aliases input 2.0x, and Sonnet 5 input 1.0x; output rates unchanged.
