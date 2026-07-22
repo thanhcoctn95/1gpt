@@ -1,5 +1,8 @@
+# Pikit local pack/runtime
 .pi/
 .opencode/
+scripts/pikit-*.mjs
+scripts/lib/pikit-*.mjs
 .pi/npm/node_modules/
 .pi/git/
 .pi/tasks/tasks.json
@@ -38,11 +41,4 @@ bin/
 backups/
 *.dump
 *.dump.list
-.pi/tasks/tasks-*.json
 .fallow/
-.pi/artifacts/
-.pi/task-registry.json
-.pi/task-session-history.json
-.pi/tasks/
-.pi/docs/tasks/
-.pi/verify-cache.json
