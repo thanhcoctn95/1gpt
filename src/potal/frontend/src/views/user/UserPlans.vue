@@ -2,20 +2,23 @@
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { toast } from 'vue-sonner'
-import { IconPackage, IconCheck, IconShieldCheck } from '@tabler/icons-vue'
+import { IconPackage, IconCheck, IconChevronDown, IconShieldCheck } from '@tabler/icons-vue'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useAuth } from '@/composables/useAuth'
-import { ApiError, getPublicPlans, getDashboardMe, type PublicPlanRow, type SubscriptionRow } from '@/services/api'
-import { formatVnd, formatCredit } from '@/lib/format'
+import { ApiError, getPublicPlans, getDashboardMe, getModelRatios, type ModelRatioRow, type PublicPlanRow, type SubscriptionRow } from '@/services/api'
+import { formatVnd, formatCredit, quotaToCredit } from '@/lib/format'
 
-const { t } = useI18n()
+const { t, locale } = useI18n()
 const { userApiKey } = useAuth()
 
 const loading = ref(true)
 const plans = ref<PublicPlanRow[]>([])
 const activePlanTitle = ref('')
+const modelRatios = ref<ModelRatioRow[]>([])
+const expandedPlans = ref<number[]>([])
 
 const monthlyPlans = computed(() =>
   plans.value
@@ -32,14 +35,39 @@ function isCurrent(plan: PublicPlanRow): boolean {
   return !!activePlanTitle.value && plan.title.trim().toLowerCase() === activePlanTitle.value
 }
 
+function formatMillionTokens(value: number): string {
+  return new Intl.NumberFormat(locale.value === 'vi' ? 'vi-VN' : 'en-US', { maximumFractionDigits: 1 }).format(value)
+}
+
+function modelTokenEquivalents(plan: PublicPlanRow): string[] {
+  const credits = quotaToCredit(Number(plan.total_amount ?? 0))
+  return modelRatios.value
+    .filter(({ model_ratio }) => Number(model_ratio) > 0)
+    .map(({ model_name, model_ratio }) =>
+      `${model_name}: ${formatMillionTokens(credits / Number(model_ratio))}M token`,
+    )
+}
+
+function isExpanded(planId: number): boolean {
+  return expandedPlans.value.includes(planId)
+}
+
+function toggleConversion(planId: number) {
+  expandedPlans.value = isExpanded(planId)
+    ? expandedPlans.value.filter((id) => id !== planId)
+    : [...expandedPlans.value, planId]
+}
+
 async function load() {
   loading.value = true
   try {
-    const [plansRes, meRes] = await Promise.all([
+    const [plansRes, meRes, ratioResponse] = await Promise.all([
       getPublicPlans(),
       getDashboardMe(userApiKey.value).catch(() => null),
+      getModelRatios(userApiKey.value),
     ])
     plans.value = plansRes
+    modelRatios.value = ratioResponse.models
     const subs = (meRes?.subscriptions ?? []) as SubscriptionRow[]
     const active = subs.find(
       (s) => s.status === 'active' && s.quota_reset_period !== 'never',
@@ -98,6 +126,16 @@ onMounted(load)
             <p class="text-lg font-medium tabular-nums">
               {{ formatCredit(plan.total_amount) }} {{ t('user.plans.creditPerDay') }}
             </p>
+            <Button variant="outline" size="sm" class="w-fit" @click="toggleConversion(plan.id)">
+              {{ t('user.plans.convert') }}
+              <IconChevronDown class="size-4 transition-transform" :class="{ 'rotate-180': isExpanded(plan.id) }" />
+            </Button>
+            <div v-if="isExpanded(plan.id)" class="rounded-md border bg-muted/40 p-3">
+              <p class="mb-2 text-xs font-medium text-foreground">{{ t('user.plans.inputTokenEquivalent') }}</p>
+              <ul class="grid max-h-52 gap-1 overflow-y-auto text-xs text-muted-foreground">
+                <li v-for="item in modelTokenEquivalents(plan)" :key="item" class="tabular-nums">{{ item }}</li>
+              </ul>
+            </div>
             <ul class="flex flex-col gap-2 text-sm text-muted-foreground">
               <li class="flex items-start gap-2">
                 <IconCheck class="mt-0.5 size-4 shrink-0 text-primary" />
@@ -142,6 +180,16 @@ onMounted(load)
             <p class="text-lg font-medium tabular-nums">
               {{ formatCredit(plan.total_amount) }} {{ t('user.plans.credit') }}
             </p>
+            <Button variant="outline" size="sm" class="w-fit" @click="toggleConversion(plan.id)">
+              {{ t('user.plans.convert') }}
+              <IconChevronDown class="size-4 transition-transform" :class="{ 'rotate-180': isExpanded(plan.id) }" />
+            </Button>
+            <div v-if="isExpanded(plan.id)" class="rounded-md border bg-muted/40 p-3">
+              <p class="mb-2 text-xs font-medium text-foreground">{{ t('user.plans.inputTokenEquivalent') }}</p>
+              <ul class="grid max-h-52 gap-1 overflow-y-auto text-xs text-muted-foreground">
+                <li v-for="item in modelTokenEquivalents(plan)" :key="item" class="tabular-nums">{{ item }}</li>
+              </ul>
+            </div>
             <ul class="flex flex-col gap-2 text-sm text-muted-foreground">
               <li class="flex items-start gap-2">
                 <IconCheck class="mt-0.5 size-4 shrink-0 text-primary" /> {{ t('user.plans.useUntilEmpty') }}

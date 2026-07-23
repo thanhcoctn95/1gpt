@@ -18,4 +18,4 @@ images:
     newTag: "20260723-095323-credit-flow-amd64"
   - name: registry.inviv.vn/oneapi/potal-frontend
     newName: registry.inviv.vn/oneapi/potal-frontend
-    newTag: "20260723-095323-credit-flow-amd64"
+    newTag: "20260723-131506-user-plans-conversion-frontend-amd64"
