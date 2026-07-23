@@ -74,6 +74,38 @@ public class ProvisioningController {
         this.jdbc.execute("ALTER TABLE subscription_plans ALTER COLUMN price_amount TYPE numeric(14,2)");
         seedDefaultPlans();
         seedTokenPacks();
+        syncFullModelTokenLimits();
+    }
+
+    /**
+     * Keep New API's native /v1/models response aligned with Admin model status for
+     * existing users whose active plan grants the full model catalog.
+     */
+    private void syncFullModelTokenLimits() {
+        long now = Instant.now().getEpochSecond();
+        this.jdbc.update("""
+            WITH active_models AS (
+              SELECT string_agg(cm.model_name, ',' ORDER BY cm.model_name) AS model_limits
+              FROM (
+                SELECT DISTINCT trim(model) AS model_name
+                FROM channels c
+                CROSS JOIN LATERAL regexp_split_to_table(COALESCE(c.models, ''), ',') AS model
+                LEFT JOIN models m ON m.model_name = trim(model) AND m.deleted_at IS NULL
+                WHERE c.status = 1 AND trim(model) <> '' AND COALESCE(m.status, 1) = 1
+              ) cm
+            ), full_model_users AS (
+              SELECT DISTINCT s.user_id
+              FROM user_subscriptions s
+              JOIN subscription_plans p ON p.id = s.plan_id
+              WHERE s.status = 'active' AND s.end_time > ?
+                AND (p.model_list IS NULL OR btrim(p.model_list) = '')
+            )
+            UPDATE tokens t
+            SET model_limits_enabled = true,
+                model_limits = (SELECT model_limits FROM active_models)
+            WHERE t.user_id IN (SELECT user_id FROM full_model_users)
+              AND t.deleted_at IS NULL
+            """, now);
     }
 
     /**
@@ -823,10 +855,9 @@ public class ProvisioningController {
 
     /**
      * Ensure the user has exactly one token, with model_limits derived from their active
-     * subscription plan(s). If ANY active plan has model_list=NULL, the token gets
-     * model_limits_enabled=false (access to all active models from New API channels —
-     * dynamic, not hardcoded). Otherwise, the token is restricted to the union of all
-     * active plans' model_list values.
+     * subscription plan(s). If ANY active plan has model_list=NULL, the token is
+     * restricted to the current Admin-active channel models. Otherwise, the token is
+     * restricted to the union of all active plans' model_list values.
      */
     private Map<String, Object> ensureSingleToken(long userId, String username, long now) {
         // Query all active subscriptions' plan model_list values.
@@ -837,7 +868,7 @@ public class ProvisioningController {
             WHERE s.user_id=? AND s.status='active' AND s.end_time > ?
             """, userId, now);
 
-        // If any plan has model_list=NULL → all models (no restriction).
+        // If any plan has model_list=NULL, resolve it to current Admin-active models.
         boolean hasNullModelList = false;
         java.util.Set<String> modelSet = new java.util.LinkedHashSet<>();
         for (Map<String, Object> row : planRows) {
@@ -857,7 +888,26 @@ public class ProvisioningController {
             }
         }
 
-        boolean modelLimitsEnabled = !hasNullModelList && !modelSet.isEmpty();
+        // Keep full-model subscriptions dynamic without disabling New API's token
+        // model gate: resolve them to the current active channel models.
+        if (hasNullModelList) {
+            modelSet.clear();
+            modelSet.addAll(jdbc.queryForList("""
+                WITH channel_models AS (
+                  SELECT DISTINCT trim(model) AS model_name
+                  FROM channels c
+                  CROSS JOIN LATERAL regexp_split_to_table(COALESCE(c.models, ''), ',') AS model
+                  WHERE c.status = 1 AND trim(model) <> ''
+                )
+                SELECT cm.model_name
+                FROM channel_models cm
+                LEFT JOIN models m ON m.model_name = cm.model_name AND m.deleted_at IS NULL
+                WHERE COALESCE(m.status, 1) = 1
+                ORDER BY cm.model_name
+                """, String.class));
+        }
+
+        boolean modelLimitsEnabled = !modelSet.isEmpty();
         String modelLimits = modelLimitsEnabled ? String.join(",", modelSet) : null;
 
         List<Map<String, Object>> existing = jdbc.queryForList("SELECT id, name, key FROM tokens WHERE user_id=? AND deleted_at IS NULL ORDER BY id ASC LIMIT 1", userId);

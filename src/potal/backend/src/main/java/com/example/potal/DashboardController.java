@@ -169,6 +169,14 @@ public class DashboardController {
                 modelRows.add(Map.of("model_name", modelName, "model_ratio", modelRatio, "completion_ratio", completionRatio));
             }
         }
+        // Only expose rates for models explicitly disabled by Admin. Models without
+        // a metadata row remain active by default, matching the dashboard model list.
+        java.util.Set<String> inactiveModels = new java.util.HashSet<>(jdbc.queryForList("""
+            SELECT DISTINCT model_name FROM models
+            WHERE status = 0 AND deleted_at IS NULL
+            """, String.class));
+        modelRows.removeIf(row -> inactiveModels.contains(String.valueOf(row.get("model_name"))));
+
         // Sort by model name
         modelRows.sort((a, b) -> String.valueOf(a.get("model_name")).compareTo(String.valueOf(b.get("model_name"))));
 

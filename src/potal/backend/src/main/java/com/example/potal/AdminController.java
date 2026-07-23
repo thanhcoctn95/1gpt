@@ -149,11 +149,38 @@ public class AdminController {
         // Mirror New API routing gate so an inactive model is not selectable upstream.
         int abilitiesUpdated = jdbc.update("UPDATE abilities SET enabled=? WHERE model=?", active, safeName);
 
+        // New API's /v1/models honors token model_limits. Refresh users whose active
+        // subscription grants all models so that endpoint exposes only Admin-active models.
+        int tokensUpdated = jdbc.update("""
+            WITH active_models AS (
+              SELECT string_agg(cm.model_name, ',' ORDER BY cm.model_name) AS model_limits
+              FROM (
+                SELECT DISTINCT trim(model) AS model_name
+                FROM channels c
+                CROSS JOIN LATERAL regexp_split_to_table(COALESCE(c.models, ''), ',') AS model
+                LEFT JOIN models m ON m.model_name = trim(model) AND m.deleted_at IS NULL
+                WHERE c.status = 1 AND trim(model) <> '' AND COALESCE(m.status, 1) = 1
+              ) cm
+            ), full_model_users AS (
+              SELECT DISTINCT s.user_id
+              FROM user_subscriptions s
+              JOIN subscription_plans p ON p.id = s.plan_id
+              WHERE s.status = 'active' AND s.end_time > ?
+                AND (p.model_list IS NULL OR btrim(p.model_list) = '')
+            )
+            UPDATE tokens t
+            SET model_limits_enabled = true,
+                model_limits = (SELECT model_limits FROM active_models)
+            WHERE t.user_id IN (SELECT user_id FROM full_model_users)
+              AND t.deleted_at IS NULL
+            """, now);
+
         return ResponseEntity.ok(Map.of("success", true, "data", Map.of(
             "modelName", safeName,
             "active", active,
             "status", status,
-            "abilitiesUpdated", abilitiesUpdated
+            "abilitiesUpdated", abilitiesUpdated,
+            "tokensUpdated", tokensUpdated
         )));
     }
 
