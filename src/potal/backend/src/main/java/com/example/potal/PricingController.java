@@ -18,13 +18,15 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequestMapping("/api/pricing")
 public class PricingController {
-    private static final ZoneId RESET_ZONE = ZoneId.systemDefault();
+    private final ZoneId resetZone;
     private final JdbcTemplate jdbc;
     private final AuthService authService;
 
-    public PricingController(JdbcTemplate jdbc, AuthService authService) {
+    public PricingController(JdbcTemplate jdbc, AuthService authService,
+                             @org.springframework.beans.factory.annotation.Value("${user.timezone:Asia/Ho_Chi_Minh}") String resetTimezone) {
         this.jdbc = jdbc;
         this.authService = authService;
+        this.resetZone = ZoneId.of(resetTimezone);
     }
 
     @PostMapping("/apply")
@@ -37,14 +39,15 @@ public class PricingController {
         long now = Instant.now().getEpochSecond();
         // Calendar-month anchor (like OpenAI/Claude via Stripe): +1 month from purchase,
         // clamped to end-of-month for short months (e.g. Jan 30 -> Feb 28/29), never rolling into the 1st.
-        long end = Instant.ofEpochSecond(now).atZone(RESET_ZONE).plusMonths(1).toEpochSecond();
-        long nextReset = LocalDate.now(RESET_ZONE).plusDays(1).atStartOfDay(RESET_ZONE).toEpochSecond();
+        long end = Instant.ofEpochSecond(now).atZone(resetZone).plusMonths(1).toEpochSecond();
+        long nextReset = LocalDate.now(resetZone).plusDays(1).atStartOfDay(resetZone).toEpochSecond();
         seedAllPlans(now);
         long planId = upsertPlan(plan, now);
 
         jdbc.update("""
             UPDATE user_subscriptions SET status='cancelled', updated_at=?
             WHERE user_id=? AND status='active'
+              AND plan_id IN (SELECT id FROM subscription_plans WHERE COALESCE(quota_reset_period, 'daily') != 'never')
             """, now, userId);
 
         long subscriptionId = insertSubscription(userId, planId, plan.dailyQuota(), now, end, nextReset, plan.upgradeGroup());

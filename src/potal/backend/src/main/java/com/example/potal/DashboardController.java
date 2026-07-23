@@ -67,7 +67,9 @@ public class DashboardController {
             FROM user_subscriptions s
             LEFT JOIN subscription_plans p ON p.id = s.plan_id
             WHERE s.user_id=?
-            ORDER BY CASE WHEN s.status='active' THEN 0 ELSE 1 END, s.id DESC
+            ORDER BY CASE WHEN s.status='active' THEN 0 ELSE 1 END,
+                     CASE WHEN COALESCE(p.quota_reset_period, 'daily') != 'never' THEN 0 ELSE 1 END,
+                     s.id DESC
             LIMIT 10
             """, userId);
         Map<String, Object> stats24h = jdbc.queryForMap("""
@@ -105,7 +107,7 @@ public class DashboardController {
 
     @GetMapping("/model-ratios")
     public ResponseEntity<?> modelRatios(@RequestHeader(value = "Authorization", required = false) String authorization) {
-        authService.requireUser(authorization);
+        authService.requireUserOrAdmin(authorization);
         // Ratios are stored in the `options` table as JSON strings:
         //   key=ModelRatio      → {"model-name": ratio, ...}
         //   key=CompletionRatio → {"model-name": ratio, ...}

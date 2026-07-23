@@ -44,8 +44,21 @@ const logs = ref<LogRow[]>([])
 
 const activeSub = computed<SubscriptionRow | null>(() => {
   const subs = me.value?.subscriptions ?? []
-  return subs.find((s) => s.status === 'active') ?? subs[0] ?? null
+  return subs.find((s) => s.status === 'active' && s.quota_reset_period !== 'never')
+    ?? subs.find((s) => s.status === 'active')
+    ?? subs[0]
+    ?? null
 })
+
+const activeTokenPacks = computed(() =>
+  (me.value?.subscriptions ?? []).filter(
+    (s) => s.status === 'active' && s.quota_reset_period === 'never',
+  ),
+)
+
+const tokenPackCredit = computed(() =>
+  activeTokenPacks.value.reduce((total, sub) => total + Number(sub.amount_left ?? 0), 0),
+)
 
 const requests24h = computed(() => Number(me.value?.stats24h?.request_24h ?? 0))
 
@@ -157,6 +170,10 @@ onBeforeUnmount(() => {
           <Badge v-if="activeSub" variant="secondary">
             {{ activeSub.status === 'active' ? t('common.active') : t('common.inactive') }}
           </Badge>
+          <div v-if="activeTokenPacks.length" class="mt-2 text-xs text-muted-foreground">
+            + {{ formatCredit(tokenPackCredit) }} credit token pack
+            ({{ activeTokenPacks.length }})
+          </div>
         </CardContent>
       </Card>
 

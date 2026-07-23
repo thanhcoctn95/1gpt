@@ -15,7 +15,7 @@ resources:
 images:
   - name: registry.inviv.vn/oneapi/potal-backend
     newName: registry.inviv.vn/oneapi/potal-backend
-    newTag: "20260720-172209-auth-hardened-amd64"
+    newTag: "20260723-095323-credit-flow-amd64"
   - name: registry.inviv.vn/oneapi/potal-frontend
     newName: registry.inviv.vn/oneapi/potal-frontend
-    newTag: "20260722-092806-mobile-menu-ux-amd64"
+    newTag: "20260723-095323-credit-flow-amd64"

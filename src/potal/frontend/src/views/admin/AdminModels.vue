@@ -10,9 +10,9 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Table, TableBody, TableCell, TableEmpty, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { useAuth } from '@/composables/useAuth'
-import { formatCreditRate, portalModelCreditRates } from '@/lib/format'
-import { ApiError, getAdminModels, setModelActive } from '@/services/api'
-import type { AdminModelRow } from '@/services/api'
+import { formatCreditRate } from '@/lib/format'
+import { ApiError, getAdminModels, getModelRatios, setModelActive } from '@/services/api'
+import type { AdminModelRow, ModelRatioRow } from '@/services/api'
 
 const { t } = useI18n()
 const { adminToken } = useAuth()
@@ -20,6 +20,7 @@ const { adminToken } = useAuth()
 const loading = ref(false)
 const showAll = ref(true)
 const models = ref<AdminModelRow[]>([])
+const ratios = ref<ModelRatioRow[]>([])
 const total = ref(0)
 const activeCount = ref(0)
 const togglingModel = ref('')
@@ -38,14 +39,23 @@ function channelList(channels: string): string[] {
 }
 
 function modelRates(modelName: string) {
-  return portalModelCreditRates(modelName)
+  const ratio = ratios.value.find((row) => row.model_name === modelName)
+  if (!ratio) return undefined
+  return {
+    input: Number(ratio.model_ratio ?? 0),
+    output: Number(ratio.model_ratio ?? 0) * Number(ratio.completion_ratio ?? 1),
+  }
 }
 
 async function fetchModels() {
   loading.value = true
   try {
-    const response = await getAdminModels(adminToken.value, { showAll: showAll.value })
+    const [response, ratioResponse] = await Promise.all([
+      getAdminModels(adminToken.value, { showAll: showAll.value }),
+      getModelRatios(adminToken.value),
+    ])
     models.value = response.items
+    ratios.value = ratioResponse.models
     total.value = response.total
     activeCount.value = response.activeCount
   } catch (err) {

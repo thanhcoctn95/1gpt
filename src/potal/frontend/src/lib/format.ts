@@ -53,26 +53,14 @@ export function formatCreditRate(rate: number | undefined | null, maxDigits = 4)
   }).format(n)
 }
 
-// Explicit portal rates for models whose pricing change is prepared alongside a DB
-// migration. Keeping this small override shared by user/admin prevents the two model
-// screens from disagreeing while runtime options are being rolled out.
-const PORTAL_MODEL_CREDIT_RATES: Record<string, { input: number; output: number }> = {
-  'gpt-5.5': { input: 1.2, output: 6 },
-  'gpt-5.5-xhigh': { input: 1.2, output: 6 },
-  'opus-4.8': { input: 2, output: 6 },
-  'opus-4.8-thinking': { input: 2, output: 6 },
-  'claude-opus-4.8': { input: 2, output: 6 },
-  'claude-opus-4.8-thinking': { input: 2, output: 6 },
-  'claude-sonnet-5': { input: 1, output: 0.5 },
-  'gpt-5.6-sol': { input: 2, output: 6 },
-  'gpt-5.6-terra': { input: 1.5, output: 6 },
-}
-
+// Runtime rates are supplied by /api/dashboard/model-ratios, derived from New API
+// billing options. Never override them in the frontend: a static map can silently
+// disagree with billing_setting.billing_expr.
 export function portalModelCreditRates(
-  modelName: string,
-  fallback?: { input: number; output: number },
+  _modelName: string,
+  runtimeRates?: { input: number; output: number },
 ): { input: number; output: number } | undefined {
-  return PORTAL_MODEL_CREDIT_RATES[modelName] ?? fallback
+  return runtimeRates
 }
 
 // Format New API `use_time` (seconds, sometimes ms) as a human response time.

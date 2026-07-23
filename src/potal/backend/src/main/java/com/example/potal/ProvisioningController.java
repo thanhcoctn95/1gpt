@@ -31,7 +31,7 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/admin")
 public class ProvisioningController {
     private static final Logger log = LoggerFactory.getLogger(ProvisioningController.class);
-    private static final ZoneId RESET_ZONE = ZoneId.systemDefault();
+    private final ZoneId resetZone;
     private static final SecureRandom RANDOM = new SecureRandom();
     private static final long TOKEN_PACK_SECONDS = 100L * 365 * 24 * 60 * 60;
     // Errors surfaced by New API: HTTP 4xx/5xx in content, explicit error_code/error_type in `other`,
@@ -60,10 +60,13 @@ public class ProvisioningController {
     private final AuthService authService;
     private final String newApiPublicBaseUrl;
 
-    public ProvisioningController(JdbcTemplate jdbc, AuthService authService, @Value("${new-api.public-base-url}") String newApiPublicBaseUrl) {
+    public ProvisioningController(JdbcTemplate jdbc, AuthService authService,
+                                  @Value("${new-api.public-base-url}") String newApiPublicBaseUrl,
+                                  @Value("${user.timezone:Asia/Ho_Chi_Minh}") String resetTimezone) {
         this.jdbc = jdbc;
         this.authService = authService;
         this.newApiPublicBaseUrl = newApiPublicBaseUrl;
+        this.resetZone = ZoneId.of(resetTimezone);
         this.jdbc.execute("ALTER TABLE user_subscriptions ADD COLUMN IF NOT EXISTS daily_extra_quota BIGINT NOT NULL DEFAULT 0");
         // model_list: CSV of model names a plan grants access to. NULL = all active models from channels.
         this.jdbc.execute("ALTER TABLE subscription_plans ADD COLUMN IF NOT EXISTS model_list TEXT");
@@ -604,8 +607,8 @@ public class ProvisioningController {
         long now = Instant.now().getEpochSecond();
         // Calendar-month anchor (like OpenAI/Claude via Stripe): +1 month from purchase,
         // clamped to end-of-month for short months (e.g. Jan 30 -> Feb 28/29), never rolling into the 1st.
-        long end = Instant.ofEpochSecond(now).atZone(RESET_ZONE).plusMonths(1).toEpochSecond();
-        long nextReset = LocalDate.now(RESET_ZONE).plusDays(1).atStartOfDay(RESET_ZONE).toEpochSecond();
+        long end = Instant.ofEpochSecond(now).atZone(resetZone).plusMonths(1).toEpochSecond();
+        long nextReset = LocalDate.now(resetZone).plusDays(1).atStartOfDay(resetZone).toEpochSecond();
 
         Map<String, Object> plan = getPlan(safeRequest.planId());
         long totalAmount = ((Number) plan.get("total_amount")).longValue();
@@ -676,7 +679,8 @@ public class ProvisioningController {
             FROM user_subscriptions s
             LEFT JOIN subscription_plans p ON p.id = s.plan_id
             WHERE s.user_id=? AND s.status='active' AND s.end_time > ?
-            ORDER BY s.id DESC LIMIT 1
+              AND COALESCE(p.quota_reset_period, 'daily') != 'never'
+            ORDER BY s.next_reset_time ASC NULLS LAST, s.id DESC LIMIT 1
             FOR UPDATE OF s
             """, safeRequest.userId(), now);
         if (rows.isEmpty()) throw new IllegalArgumentException("User has no active subscription");
@@ -940,7 +944,7 @@ public class ProvisioningController {
         long now = Instant.now().getEpochSecond();
         long nextReset = 0;
         if ("daily".equals(resetPeriod)) {
-            nextReset = LocalDate.now(RESET_ZONE).plusDays(1).atStartOfDay(RESET_ZONE).toEpochSecond();
+            nextReset = LocalDate.now(resetZone).plusDays(1).atStartOfDay(resetZone).toEpochSecond();
         }
 
         // Reset: amount_used=0, amount_total back to plan original (without extra),
@@ -974,9 +978,9 @@ public class ProvisioningController {
     // ---- daily extra quota midnight reset (Bug #2) ----
 
     /**
-     * Runs at 00:00 local time to reset daily_extra_quota back to 0 and revert
-     * amount_total to the plan's original value for all subscriptions that have
-     * extra quota granted.
+     * Runs at configured local midnight to reconcile every active monthly subscription's
+     * amount_total with its canonical plan and expire daily extras. It intentionally does
+     * not reset amount_used; New API owns usage resets.
      */
     @Scheduled(cron = "0 0 0 * * *", zone = "${user.timezone:Asia/Ho_Chi_Minh}")
     public void resetDailyExtraQuota() {
@@ -988,7 +992,6 @@ public class ProvisioningController {
                 FROM user_subscriptions s
                 LEFT JOIN subscription_plans p ON p.id = s.plan_id
                 WHERE s.status = 'active'
-                  AND COALESCE(s.daily_extra_quota, 0) > 0
                   AND COALESCE(p.quota_reset_period, 'daily') != 'never'
                 """);
 
@@ -1011,7 +1014,7 @@ public class ProvisioningController {
                     WHERE id = ?
                     """, planTotal, now, subId);
                 reset++;
-                log.info("Daily extra quota reset for sub {}: extra {} → 0, total → {}",
+                log.info("Monthly quota reconciliation for sub {}: extra {} → 0, total → {}",
                         subId, dailyExtra, planTotal);
             }
 
