@@ -3,6 +3,7 @@
 .opencode/
 scripts/pikit-*.mjs
 scripts/lib/pikit-*.mjs
+tooling/
 .pi/npm/node_modules/
 .pi/git/
 .pi/tasks/tasks.json
@@ -42,3 +43,8 @@ backups/
 *.dump
 *.dump.list
 .fallow/
+.pi/tasks/
+.pi/docs/tasks/
+.pi/verify-cache.json
+.pi/task-registry.json
+.pi/task-session-history.json
