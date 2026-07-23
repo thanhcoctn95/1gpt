@@ -38,6 +38,13 @@ public class AuthService {
         return auth;
     }
 
+    public Map<String, Object> requireUserOrAdmin(String authorization) {
+        if (authorization != null && authorization.regionMatches(true, 0, "Bearer pat_", 0, 11)) {
+            return requireAdmin(authorization);
+        }
+        return requireUser(authorization);
+    }
+
     public Map<String, Object> requireAdmin(String authorization) {
         String bearer = bearerToken(authorization);
         if (bearer.startsWith("pat_")) return requirePortalAdminToken(bearer);

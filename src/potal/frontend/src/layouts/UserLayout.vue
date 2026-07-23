@@ -55,9 +55,9 @@ function handleLogout() {
       :account-sub="t('common.user')"
       :on-logout="handleLogout"
     />
-    <SidebarInset>
+    <SidebarInset class="min-w-0 md:w-auto">
       <PortalHeader :title="pageTitle" />
-      <div class="flex flex-1 flex-col gap-4 p-4 md:gap-6 md:p-6">
+      <div class="flex flex-1 scroll-mt-[calc(3rem+env(safe-area-inset-top))] flex-col gap-4 p-4 md:gap-6 md:p-6">
         <RouterView />
       </div>
     </SidebarInset>

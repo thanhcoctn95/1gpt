@@ -41,7 +41,9 @@ async function load() {
     ])
     plans.value = plansRes
     const subs = (meRes?.subscriptions ?? []) as SubscriptionRow[]
-    const active = subs.find((s) => s.status === 'active') ?? subs[0] ?? null
+    const active = subs.find(
+      (s) => s.status === 'active' && s.quota_reset_period !== 'never',
+    ) ?? null
     activePlanTitle.value = String(active?.plan_title ?? '').trim().toLowerCase()
   } catch (err) {
     toast.error(err instanceof ApiError ? err.message : t('common.error'))

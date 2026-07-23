@@ -46,14 +46,14 @@ bcrypt_hash() {
 choose_plan() {
   local choice=""
   echo "Chọn gói:"
-  echo "  1) Basic - 30M quota/ngày"
-  echo "  2) Pro   - 60M quota/ngày"
-  echo "  3) Ultra - 100M quota/ngày"
+  echo "  1) Plus  - 20M quota/ngày"
+  echo "  2) Pro   - 40M quota/ngày"
+  echo "  3) Ultra - 60M quota/ngày"
   read -r -p "Nhập lựa chọn [1-3]: " choice
   case "$choice" in
-    1|basic|Basic|BASIC) PLAN_CODE="basic"; PLAN_TITLE="Basic"; PLAN_SUBTITLE="30M quota / ngày"; PLAN_PRICE="200"; PLAN_QUOTA="30000000"; PLAN_SORT="10" ;;
-    2|pro|Pro|PRO) PLAN_CODE="pro"; PLAN_TITLE="Pro"; PLAN_SUBTITLE="60M quota / ngày"; PLAN_PRICE="350"; PLAN_QUOTA="60000000"; PLAN_SORT="20" ;;
-    3|ultra|Ultra|ULTRA) PLAN_CODE="ultra"; PLAN_TITLE="Ultra"; PLAN_SUBTITLE="100M quota / ngày"; PLAN_PRICE="500"; PLAN_QUOTA="100000000"; PLAN_SORT="30" ;;
+    1|plus|Plus|PLUS) PLAN_CODE="plus"; PLAN_TITLE="Plus"; PLAN_SUBTITLE="20M quota / ngày"; PLAN_PRICE="549000"; PLAN_QUOTA="20000000"; PLAN_SORT="10" ;;
+    2|pro|Pro|PRO) PLAN_CODE="pro"; PLAN_TITLE="Pro"; PLAN_SUBTITLE="40M quota / ngày"; PLAN_PRICE="879000"; PLAN_QUOTA="40000000"; PLAN_SORT="20" ;;
+    3|ultra|Ultra|ULTRA) PLAN_CODE="ultra"; PLAN_TITLE="Ultra"; PLAN_SUBTITLE="60M quota / ngày"; PLAN_PRICE="1199000"; PLAN_QUOTA="60000000"; PLAN_SORT="30" ;;
     *) echo "Lựa chọn gói không hợp lệ" >&2; exit 1 ;;
   esac
 }
@@ -146,41 +146,13 @@ BEGIN
   VALUES
     (v_user_id, '$TOKEN_KEY_SQL', 1, '$TOKEN_NAME_SQL', $NOW, $NOW, -1, $TOKEN_REMAIN, $TOKEN_UNLIMITED, false, '', '', 0, '$TOKEN_GROUP_SQL', false);
 
-  -- Seed/update all public plans every run so New API subscription management always shows Basic/Pro/Ultra.
-  INSERT INTO subscription_plans
-    (title, subtitle, price_amount, currency, duration_unit, duration_value, custom_seconds, enabled, sort_order, stripe_price_id, creem_product_id, max_purchase_per_user, upgrade_group, total_amount, quota_reset_period, quota_reset_custom_seconds, created_at, updated_at)
-  SELECT seed.title, seed.subtitle, seed.price_amount, 'USD', 'month', 1, 0, true, seed.sort_order, '', '', 0, '', seed.total_amount, 'daily', 0, $NOW, $NOW
-  FROM (VALUES
-    ('Basic', '30M quota / ngày', 200::numeric, 10, 30000000::bigint),
-    ('Pro', '60M quota / ngày', 350::numeric, 20, 60000000::bigint),
-    ('Ultra', '100M quota / ngày', 500::numeric, 30, 100000000::bigint)
-  ) AS seed(title, subtitle, price_amount, sort_order, total_amount)
-  WHERE NOT EXISTS (SELECT 1 FROM subscription_plans p WHERE p.title = seed.title);
-
-  UPDATE subscription_plans p
-  SET subtitle = seed.subtitle,
-      price_amount = seed.price_amount,
-      currency = 'USD',
-      duration_unit = 'month',
-      duration_value = 1,
-      enabled = true,
-      sort_order = seed.sort_order,
-      max_purchase_per_user = 0,
-      upgrade_group = '',
-      total_amount = seed.total_amount,
-      quota_reset_period = 'daily',
-      quota_reset_custom_seconds = 0,
-      updated_at = $NOW
-  FROM (VALUES
-    ('Basic', '30M quota / ngày', 200::numeric, 10, 30000000::bigint),
-    ('Pro', '60M quota / ngày', 350::numeric, 20, 60000000::bigint),
-    ('Ultra', '100M quota / ngày', 500::numeric, 30, 100000000::bigint)
-  ) AS seed(title, subtitle, price_amount, sort_order, total_amount)
-  WHERE p.title = seed.title;
-
+  -- Use the portal's canonical plan contract; never upsert plan definitions here.
   SELECT id INTO v_plan_id
   FROM subscription_plans
   WHERE title = '$PLAN_TITLE_SQL'
+    AND quota_reset_period = 'daily'
+    AND total_amount = $PLAN_QUOTA
+    AND enabled = true
   ORDER BY id ASC
   LIMIT 1;
 
