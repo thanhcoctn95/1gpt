@@ -50,11 +50,12 @@ const modelChartRows = computed(() =>
   (stats.value?.byModel ?? []).map((row) => ({
     model: String(row.model || '—'),
     count: Number(row.req_count ?? 0),
-    tokens: Number((row.tokens_in ?? 0)) + Number((row.tokens_out ?? 0)),
+    tokensIn: Number(row.tokens_in ?? 0),
+    tokensOut: Number(row.tokens_out ?? 0),
     quota: Number(row.total_quota ?? 0),
   })),
 )
-const maxModelRequests = computed(() => Math.max(1, ...modelChartRows.value.map((row) => row.count)))
+const maxModelTokens = computed(() => Math.max(1, ...modelChartRows.value.map((row) => row.tokensIn + row.tokensOut)))
 
 const statusBreakdown = computed(() => {
   const total = Number(stats.value?.totals?.req_count ?? 0)
@@ -380,16 +381,29 @@ onMounted(() => {
                   <span class="tabular-nums text-muted-foreground">
                     {{ formatNumber(row.count) }} {{ t('admin.overview.totalRequests') }}
                     <span class="mx-1">·</span>
-                    {{ formatNumber(row.tokens) }} {{ t('admin.logs.tokensLabel') }}
+                    {{ t('admin.logs.tokensIn') }}: {{ formatNumber(row.tokensIn) }}
+                    <span class="mx-1">·</span>
+                    {{ t('admin.logs.tokensOut') }}: {{ formatNumber(row.tokensOut) }}
                     <span class="mx-1">·</span>
                     {{ formatCredit(row.quota) }} {{ t('admin.logs.creditLabel') }}
                   </span>
                 </div>
                 <div class="h-2.5 w-full overflow-hidden rounded-full bg-muted">
                   <div
-                    class="h-full rounded-full bg-primary"
-                    :style="{ width: `${Math.max(4, (row.count / maxModelRequests) * 100)}%` }"
-                  />
+                    v-if="row.tokensIn + row.tokensOut > 0"
+                    class="flex h-full overflow-hidden rounded-full"
+                    :style="{ width: `${Math.max(4, ((row.tokensIn + row.tokensOut) / maxModelTokens) * 100)}%` }"
+                  >
+                    <div
+                      class="h-full bg-primary"
+                      :style="{ width: `${(row.tokensIn / (row.tokensIn + row.tokensOut)) * 100}%` }"
+                    />
+                    <div
+                      class="h-full bg-chart-2"
+                      :style="{ width: `${(row.tokensOut / (row.tokensIn + row.tokensOut)) * 100}%` }"
+                    />
+                  </div>
+                  <div v-else class="h-full w-[4%] rounded-full bg-muted-foreground/30" />
                 </div>
               </li>
             </ul>

@@ -139,6 +139,7 @@ export type ProvisionedUserRow = Record<string, unknown> & {
   end_time?: string
   last_reset_time?: string
   next_reset_time?: string
+  subscription_count?: number
 }
 
 export type ProvisionResult = {

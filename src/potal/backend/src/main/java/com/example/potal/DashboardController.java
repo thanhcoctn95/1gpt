@@ -140,34 +140,18 @@ public class DashboardController {
         var completionRatioMap = parseJsonNumberMap(completionRatioJson);
         var groupRatioMap = parseJsonNumberMap(groupRatioJson);
 
+        var exprMap = parseJsonStringMap(billingExprJson);
+        var creditRates = mergeCreditRates(modelRatioMap, completionRatioMap, exprMap);
+
         List<Map<String, Object>> modelRows = new java.util.ArrayList<>();
-        if (!modelRatioMap.isEmpty()) {
-            for (var entry : modelRatioMap.entrySet()) {
-                String modelName = entry.getKey();
-                double mr = entry.getValue();
-                double cr = completionRatioMap.getOrDefault(modelName, 1.0);
-                modelRows.add(Map.of("model_name", modelName, "model_ratio", mr, "completion_ratio", cr));
-            }
-        } else {
-            // Derive display rates from billing_expr. The billing engine computes
-            //   quota = expr(p, c) / 1_000_000 * 500_000 * groupRatio
-            // and the portal shows credit = quota / 1_000_000. With groupRatio = 1 this
-            // means credit per 1M input tokens = coeff_p * 0.5 and credit per 1M output
-            // tokens = coeff_c * 0.5. We surface those as model_ratio (input credit/1M)
-            // and completion_ratio (output/input multiplier) so the existing frontend math
-            // (creditInput = model_ratio, creditOutput = model_ratio * completion_ratio) holds.
-            var exprMap = parseJsonStringMap(billingExprJson);
-            for (var entry : exprMap.entrySet()) {
-                String modelName = entry.getKey();
-                double coeffP = extractCoefficient(entry.getValue(), 'p');
-                double coeffC = extractCoefficient(entry.getValue(), 'c');
-                if (coeffP <= 0 && coeffC <= 0) continue;
-                double creditIn = coeffP * BILLING_EXPR_CREDIT_FACTOR;
-                double creditOut = coeffC * BILLING_EXPR_CREDIT_FACTOR;
-                double modelRatio = creditIn;
-                double completionRatio = creditIn > 0 ? creditOut / creditIn : 1.0;
-                modelRows.add(Map.of("model_name", modelName, "model_ratio", modelRatio, "completion_ratio", completionRatio));
-            }
+        for (var entry : creditRates.entrySet()) {
+            CreditRate rate = entry.getValue();
+            double completionRatio = rate.input() > 0 ? rate.output() / rate.input() : 1.0;
+            modelRows.add(Map.of(
+                "model_name", entry.getKey(),
+                "model_ratio", rate.input(),
+                "completion_ratio", completionRatio
+            ));
         }
         // Only expose rates for models explicitly disabled by Admin. Models without
         // a metadata row remain active by default, matching the dashboard model list.
@@ -195,6 +179,36 @@ public class DashboardController {
     // quota = expr(p,c) / 1_000_000 * 500_000 * groupRatio; credit = quota / 1_000_000.
     // With groupRatio = 1: credit per 1M tokens = coefficient * (500_000 / 1_000_000) = coefficient * 0.5.
     private static final double BILLING_EXPR_CREDIT_FACTOR = 500_000.0 / 1_000_000.0;
+
+    record CreditRate(double input, double output) {}
+
+    static Map<String, CreditRate> mergeCreditRates(
+        Map<String, Double> modelRatios,
+        Map<String, Double> completionRatios,
+        Map<String, String> expressions
+    ) {
+        Map<String, CreditRate> rates = new java.util.LinkedHashMap<>();
+
+        for (var entry : modelRatios.entrySet()) {
+            double input = entry.getValue();
+            double output = input * completionRatios.getOrDefault(entry.getKey(), 1.0);
+            rates.put(entry.getKey(), new CreditRate(input, output));
+        }
+
+        // billing_expr is the runtime source of truth. Override legacy maps per model
+        // instead of discarding all expressions whenever ModelRatio has any entries.
+        for (var entry : expressions.entrySet()) {
+            double coeffP = extractCoefficient(entry.getValue(), 'p');
+            double coeffC = extractCoefficient(entry.getValue(), 'c');
+            if (coeffP <= 0 && coeffC <= 0) continue;
+            rates.put(entry.getKey(), new CreditRate(
+                coeffP * BILLING_EXPR_CREDIT_FACTOR,
+                coeffC * BILLING_EXPR_CREDIT_FACTOR
+            ));
+        }
+
+        return rates;
+    }
 
     // Extract the numeric coefficient K from the first "<var> * K" term in a billing
     // expression, e.g. extractCoefficient("... p * 2.4 + c * 12", 'p') -> 2.4.

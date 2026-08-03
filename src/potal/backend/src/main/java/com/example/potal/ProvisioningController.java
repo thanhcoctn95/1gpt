@@ -302,18 +302,55 @@ public class ProvisioningController {
             SELECT u.id AS user_id, u.username, u.display_name, u.status AS user_status,
                    t.id AS token_id, t.name AS token_name, t.status AS token_status,
                    CASE WHEN length(t.key) <= 8 THEN repeat('*', length(t.key)) ELSE left(t.key, 4) || repeat('*', GREATEST(length(t.key)-8, 0)) || right(t.key, 4) END AS key_masked,
-                   s.id AS subscription_id, s.status AS subscription_status,
-                   p.title AS plan_title, s.amount_total, s.amount_used, COALESCE(s.daily_extra_quota, 0) AS daily_extra_quota,
-                   COALESCE(p.quota_reset_period, 'daily') AS quota_reset_period,
-                   (s.amount_total - s.amount_used) AS amount_left,
+                   s.subscription_id, s.subscription_status,
+                   s.plan_title, s.amount_total, s.amount_used, s.daily_extra_quota,
+                   s.quota_reset_period, s.amount_left,
                    to_timestamp(s.start_time) AS start_time,
                    to_timestamp(s.end_time) AS end_time,
                    to_timestamp(s.last_reset_time) AS last_reset_time,
-                   to_timestamp(s.next_reset_time) AS next_reset_time
+                   to_timestamp(s.next_reset_time) AS next_reset_time,
+                   COALESCE(s.subscription_count, 0) AS subscription_count
             FROM users u
-            LEFT JOIN tokens t ON t.user_id = u.id AND t.deleted_at IS NULL
-            LEFT JOIN user_subscriptions s ON s.user_id = u.id AND s.status = 'active'
-            LEFT JOIN subscription_plans p ON p.id = s.plan_id
+            LEFT JOIN LATERAL (
+                SELECT id, name, status, key
+                FROM tokens
+                WHERE user_id = u.id AND deleted_at IS NULL
+                ORDER BY id ASC
+                LIMIT 1
+            ) t ON true
+            LEFT JOIN LATERAL (
+                SELECT min(active.id) AS subscription_id,
+                       CASE WHEN count(*) > 0 THEN 'active' END AS subscription_status,
+                       CASE
+                           WHEN bool_and(active.quota_reset_period = 'never') THEN 'Pay as you go'
+                           ELSE string_agg(DISTINCT COALESCE(active.plan_title, '—'), ' + ' ORDER BY COALESCE(active.plan_title, '—'))
+                       END AS plan_title,
+                       sum(active.amount_total)::bigint AS amount_total,
+                       sum(active.amount_used)::bigint AS amount_used,
+                       sum(active.daily_extra_quota)::bigint AS daily_extra_quota,
+                       CASE
+                           WHEN bool_and(active.quota_reset_period = 'never') THEN 'never'
+                           WHEN bool_or(active.quota_reset_period = 'never') THEN 'mixed'
+                           ELSE 'daily'
+                       END AS quota_reset_period,
+                       sum(active.amount_total - active.amount_used)::bigint AS amount_left,
+                       min(active.start_time) AS start_time,
+                       max(active.end_time) AS end_time,
+                       max(active.last_reset_time) AS last_reset_time,
+                       max(active.next_reset_time) AS next_reset_time,
+                       count(*)::bigint AS subscription_count
+                FROM (
+                    SELECT us.id, p.title AS plan_title, us.amount_total, us.amount_used,
+                           COALESCE(us.daily_extra_quota, 0) AS daily_extra_quota,
+                           COALESCE(p.quota_reset_period, 'daily') AS quota_reset_period,
+                           us.start_time, us.end_time, us.last_reset_time, us.next_reset_time
+                    FROM user_subscriptions us
+                    LEFT JOIN subscription_plans p ON p.id = us.plan_id
+                    WHERE us.user_id = u.id
+                      AND us.status = 'active'
+                      AND us.end_time > extract(epoch FROM now())::bigint
+                ) active
+            ) s ON true
             WHERE u.deleted_at IS NULL
             ORDER BY u.id DESC
             LIMIT 50
@@ -1025,52 +1062,34 @@ public class ProvisioningController {
         )));
     }
 
-    // ---- daily extra quota midnight reset (Bug #2) ----
-
     /**
-     * Runs at configured local midnight to reconcile every active monthly subscription's
-     * amount_total with its canonical plan and expire daily extras. It intentionally does
-     * not reset amount_used; New API owns usage resets.
+     * Reconcile active monthly subscription counters from logs.quota, which is the
+     * source of truth for usage. Never clear amount_used without accounting for logs.
      */
-    @Scheduled(cron = "0 0 0 * * *", zone = "${user.timezone:Asia/Ho_Chi_Minh}")
+    @Scheduled(cron = "0 5 7 * * *", zone = "Asia/Ho_Chi_Minh")
     public void resetDailyExtraQuota() {
         long now = Instant.now().getEpochSecond();
         try {
-            List<Map<String, Object>> subs = jdbc.queryForList("""
-                SELECT s.id, s.plan_id, s.amount_total, s.daily_extra_quota,
-                       p.total_amount AS plan_total
-                FROM user_subscriptions s
-                LEFT JOIN subscription_plans p ON p.id = s.plan_id
-                WHERE s.status = 'active'
+            int reconciled = jdbc.update("""
+                UPDATE user_subscriptions s
+                SET amount_used = usage.used_from_logs,
+                    amount_total = p.total_amount + COALESCE(s.daily_extra_quota, 0),
+                    updated_at = ?
+                FROM subscription_plans p
+                LEFT JOIN LATERAL (
+                    SELECT COALESCE(SUM(l.quota), 0)::bigint AS used_from_logs
+                    FROM logs l
+                    WHERE l.user_id = s.user_id
+                      AND l.created_at >= s.last_reset_time
+                      AND (s.next_reset_time = 0 OR l.created_at < s.next_reset_time)
+                ) usage ON true
+                WHERE s.plan_id = p.id
+                  AND s.status = 'active'
                   AND COALESCE(p.quota_reset_period, 'daily') != 'never'
-                """);
-
-            int reset = 0;
-            for (Map<String, Object> sub : subs) {
-                long subId = ((Number) sub.get("id")).longValue();
-                long planTotal = ((Number) sub.getOrDefault("plan_total", 0)).longValue();
-                long dailyExtra = ((Number) sub.get("daily_extra_quota")).longValue();
-
-                if (planTotal <= 0) {
-                    log.warn("Daily extra reset skipped for sub {}: plan_total is 0", subId);
-                    continue;
-                }
-
-                jdbc.update("""
-                    UPDATE user_subscriptions
-                    SET amount_total = ?,
-                        daily_extra_quota = 0,
-                        updated_at = ?
-                    WHERE id = ?
-                    """, planTotal, now, subId);
-                reset++;
-                log.info("Monthly quota reconciliation for sub {}: extra {} → 0, total → {}",
-                        subId, dailyExtra, planTotal);
-            }
-
-            log.info("Daily extra quota reset complete: {} subscriptions reset", reset);
+                """, now);
+            log.info("Daily subscription log reconciliation complete: {} subscriptions reconciled", reconciled);
         } catch (Exception e) {
-            log.error("Daily extra quota reset failed", e);
+            log.error("Daily subscription log reconciliation failed", e);
         }
     }
 

@@ -42,13 +42,11 @@ const me = ref<DashboardMe | null>(null)
 const connectionUrl = ref('')
 const logs = ref<LogRow[]>([])
 
-const activeSub = computed<SubscriptionRow | null>(() => {
-  const subs = me.value?.subscriptions ?? []
-  return subs.find((s) => s.status === 'active' && s.quota_reset_period !== 'never')
-    ?? subs.find((s) => s.status === 'active')
-    ?? subs[0]
-    ?? null
-})
+const activeMonthlySub = computed<SubscriptionRow | null>(() =>
+  (me.value?.subscriptions ?? []).find(
+    (s) => s.status === 'active' && s.quota_reset_period !== 'never',
+  ) ?? null,
+)
 
 const activeTokenPacks = computed(() =>
   (me.value?.subscriptions ?? []).filter(
@@ -56,9 +54,39 @@ const activeTokenPacks = computed(() =>
   ),
 )
 
-const tokenPackCredit = computed(() =>
-  activeTokenPacks.value.reduce((total, sub) => total + Number(sub.amount_left ?? 0), 0),
+const hasPaygWallet = computed(() => activeTokenPacks.value.length > 0)
+const isPaygOnly = computed(() => !activeMonthlySub.value && hasPaygWallet.value)
+
+const activeSub = computed<SubscriptionRow | null>(() =>
+  activeMonthlySub.value
+    ?? activeTokenPacks.value[0]
+    ?? (me.value?.subscriptions ?? [])[0]
+    ?? null,
 )
+
+const tokenPackTotals = computed(() =>
+  activeTokenPacks.value.reduce(
+    (totals, sub) => ({
+      used: totals.used + Number(sub.amount_used ?? 0),
+      left: totals.left + Number(sub.amount_left ?? 0),
+    }),
+    { used: 0, left: 0 },
+  ),
+)
+
+const displayedPlanTitle = computed(() =>
+  isPaygOnly.value ? t('user.overview.paygWallet') : activeSub.value?.plan_title,
+)
+
+const displayedCredit = computed(() => {
+  if (activeMonthlySub.value) {
+    return {
+      used: Number(activeMonthlySub.value.amount_used ?? 0),
+      left: Number(activeMonthlySub.value.amount_left ?? 0),
+    }
+  }
+  return tokenPackTotals.value
+})
 
 const requests24h = computed(() => Number(me.value?.stats24h?.request_24h ?? 0))
 
@@ -105,6 +133,12 @@ function hourlyTooltip(hour: number, count: number): string {
   return `${hourLabel(hour)} · ${formatNumber(count)} ${t('user.overview.requests')}`
 }
 
+function openAiConnectionUrl(config: Awaited<ReturnType<typeof getPortalConfig>> | null): string {
+  const baseUrl = config?.newApiPublicBaseUrl || config?.openAiBaseUrl || config?.newApiBaseUrl || ''
+  const normalized = baseUrl.trim().replace(/\/+$/, '')
+  return normalized ? (normalized.endsWith('/v1') ? normalized : `${normalized}/v1`) : ''
+}
+
 let loadingRequest = false
 let refreshTimer: number | undefined
 
@@ -119,8 +153,7 @@ async function load(showSkeleton = true) {
       getDashboardLogs(userApiKey.value, { page: 1, size: 1000 }).catch(() => null),
     ])
     me.value = meRes
-    connectionUrl.value =
-      configRes?.newApiPublicBaseUrl || configRes?.openAiBaseUrl || configRes?.newApiBaseUrl || ''
+    connectionUrl.value = openAiConnectionUrl(configRes)
     logs.value = logsRes?.items ?? []
   } catch (err) {
     const msg = err instanceof ApiError ? err.message : String(err)
@@ -163,16 +196,15 @@ onBeforeUnmount(() => {
           </CardDescription>
           <CardTitle class="text-2xl">
             <template v-if="loading"><Skeleton class="h-7 w-32" /></template>
-            <template v-else>{{ activeSub?.plan_title ?? t('user.overview.noPlan') }}</template>
+            <template v-else>{{ displayedPlanTitle ?? t('user.overview.noPlan') }}</template>
           </CardTitle>
         </CardHeader>
         <CardContent>
           <Badge v-if="activeSub" variant="secondary">
             {{ activeSub.status === 'active' ? t('common.active') : t('common.inactive') }}
           </Badge>
-          <div v-if="activeTokenPacks.length" class="mt-2 text-xs text-muted-foreground">
-            + {{ formatCredit(tokenPackCredit) }} credit token pack
-            ({{ activeTokenPacks.length }})
+          <div v-if="activeMonthlySub && hasPaygWallet" class="mt-2 text-xs text-muted-foreground">
+            + {{ formatCredit(tokenPackTotals.left) }} {{ t('user.overview.paygWallet') }}
           </div>
         </CardContent>
       </Card>
@@ -181,16 +213,20 @@ onBeforeUnmount(() => {
       <Card>
         <CardHeader>
           <CardDescription class="flex items-center gap-2">
-            <IconCoin class="size-4" /> {{ t('user.overview.tokenCreditToday') }}
+            <IconCoin class="size-4" />
+            {{ isPaygOnly ? t('user.overview.paygWallet') : t('user.overview.tokenCreditToday') }}
           </CardDescription>
           <CardTitle class="text-2xl tabular-nums">
             <template v-if="loading"><Skeleton class="h-7 w-24" /></template>
-            <template v-else>{{ activeSub ? formatCredit(activeSub.amount_left) : '—' }}</template>
+            <template v-else>{{ activeSub ? formatCredit(displayedCredit.left) : '—' }}</template>
           </CardTitle>
         </CardHeader>
         <CardContent class="text-sm text-muted-foreground">
           <template v-if="activeSub">
-            {{ formatCredit(activeSub.amount_used) }} {{ t('user.overview.quotaUsed') }}
+            <span v-if="isPaygOnly">{{ t('user.overview.paygNoExpiry') }}</span>
+            <template v-else>
+              {{ formatCredit(displayedCredit.used) }} {{ t('user.overview.quotaUsed') }}
+            </template>
           </template>
         </CardContent>
       </Card>
@@ -206,9 +242,12 @@ onBeforeUnmount(() => {
             <template v-else>{{ connectionUrl || '—' }}</template>
           </CardTitle>
         </CardHeader>
-        <CardContent>
+        <CardContent class="flex flex-wrap gap-2">
           <Button variant="outline" size="sm" :disabled="!connectionUrl" @click="copy(connectionUrl)">
             <IconCopy class="size-4" /> {{ t('common.copy') }}
+          </Button>
+          <Button variant="outline" size="sm" :disabled="!userApiKey" @click="copy(userApiKey)">
+            <IconCopy class="size-4" /> {{ t('user.overview.copyApiKey') }}
           </Button>
         </CardContent>
       </Card>

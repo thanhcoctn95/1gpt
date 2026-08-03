@@ -1,5 +1,6 @@
 # Pikit local pack/runtime
 .pi/
+.pi-subagents/
 .opencode/
 scripts/pikit-*.mjs
 scripts/lib/pikit-*.mjs

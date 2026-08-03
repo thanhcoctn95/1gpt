@@ -243,12 +243,18 @@ onMounted(async () => {
               <TableCell>
                 <Badge variant="secondary">{{ user.plan_title || '—' }}</Badge>
               </TableCell>
-              <TableCell class="text-right tabular-nums">{{ formatCredit(user.amount_total) }}</TableCell>
-              <TableCell class="text-right tabular-nums">{{ formatCredit(user.amount_used) }}</TableCell>
+              <TableCell class="text-right tabular-nums">
+                {{ user.quota_reset_period === 'never' ? '—' : formatCredit(user.amount_total) }}
+              </TableCell>
+              <TableCell class="text-right tabular-nums">
+                {{ user.quota_reset_period === 'never' ? '—' : formatCredit(user.amount_used) }}
+              </TableCell>
               <TableCell class="text-right tabular-nums">{{ formatCredit(user.amount_left) }}</TableCell>
               <TableCell class="font-mono text-xs text-muted-foreground">{{ user.key_masked || '—' }}</TableCell>
               <TableCell>{{ user.quota_reset_period || '—' }}</TableCell>
-              <TableCell>{{ formatDate(user.end_time) }}</TableCell>
+              <TableCell>
+                {{ user.quota_reset_period === 'never' ? '—' : formatDate(user.end_time) }}
+              </TableCell>
               <TableCell class="text-right">
                 <div class="flex items-center justify-end gap-2">
                   <Button variant="outline" size="sm" :disabled="granting" @click="openGrantDialog(user)">
