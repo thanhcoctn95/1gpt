@@ -415,12 +415,13 @@ public class ProvisioningController {
         rowArgs.add(offset);
         String rowsSql = "SELECT l.id, l.request_id, l.user_id, u.username, l.model_name, l.type, " +
             "l.prompt_tokens, l.completion_tokens, l.quota, l.use_time, " +
-            "l.is_stream, l.channel_name, l.token_id, l.token_name, l.content, l.other, " +
+            "l.is_stream, l.channel_name, l.token_id, l.token_name, l.\"group\", l.content, l.other, " +
             "CASE WHEN " + LOG_ERROR_CONDITION + " THEN 'error' ELSE 'success' END AS request_status, " +
             LOG_STATUS_CODE_SQL + " AS status_code, " +
             LOG_ERROR_MESSAGE_SQL + " AS error_message, " +
             LOG_ERROR_TYPE_SQL + " AS error_type, " +
             LOG_ERROR_CODE_SQL + " AS error_code, " +
+            "NULLIF(substring(l.other from '\"reasoning_effort\"[[:space:]]*:[[:space:]]*\"([^\"]+)\"'), '') AS reasoning_effort, " +
             "to_timestamp(l.created_at) AS created_at " +
             "FROM logs l JOIN users u ON u.id = l.user_id " + where +
             " ORDER BY l.id DESC LIMIT ? OFFSET ?";
@@ -1066,14 +1067,15 @@ public class ProvisioningController {
      * Reconcile active monthly subscription counters from logs.quota, which is the
      * source of truth for usage. Never clear amount_used without accounting for logs.
      */
-    @Scheduled(cron = "0 5 7 * * *", zone = "Asia/Ho_Chi_Minh")
+    @Scheduled(cron = "0 0 0 * * *", zone = "Asia/Ho_Chi_Minh")
     public void resetDailyExtraQuota() {
         long now = Instant.now().getEpochSecond();
         try {
             int reconciled = jdbc.update("""
                 UPDATE user_subscriptions s
                 SET amount_used = usage.used_from_logs,
-                    amount_total = p.total_amount + COALESCE(s.daily_extra_quota, 0),
+                    amount_total = p.total_amount,
+                    daily_extra_quota = 0,
                     updated_at = ?
                 FROM subscription_plans p
                 LEFT JOIN LATERAL (

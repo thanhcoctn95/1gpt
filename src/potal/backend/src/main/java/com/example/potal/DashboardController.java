@@ -306,6 +306,7 @@ public class DashboardController {
                    %s AS error_message,
                    %s AS error_type,
                    %s AS error_code,
+                   NULLIF(substring(l.other from '"reasoning_effort"[[:space:]]*:[[:space:]]*"([^"]+)"'), '') AS reasoning_effort,
                    to_timestamp(l.created_at) AS created_at
             FROM logs l
             %s

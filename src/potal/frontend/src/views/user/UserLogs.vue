@@ -1,179 +1,212 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
-import { useI18n } from 'vue-i18n'
-import { toast } from 'vue-sonner'
-import { IconChevronLeft, IconChevronRight, IconRefresh, IconSearch } from '@tabler/icons-vue'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
-import { Input } from '@/components/ui/input'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Skeleton } from '@/components/ui/skeleton'
+import { computed, onBeforeUnmount, onMounted, ref } from "vue";
+import { useI18n } from "vue-i18n";
+import { toast } from "vue-sonner";
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableEmpty,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table'
-import { useAuth } from '@/composables/useAuth'
+	IconChevronLeft,
+	IconChevronRight,
+	IconRefresh,
+	IconSearch,
+} from "@tabler/icons-vue";
 import {
-  getDashboardLogs,
-  getDashboardLogModelStats,
-  getDashboardLogStatusStats,
-  ApiError,
-  type DashboardLogParams,
-  type LogModelStatRow,
-  type LogStatusStat,
-  type LogRow,
-} from '@/services/api'
-import { formatDateTime, formatNumber, formatCredit, isErrorLog, todayISODate } from '@/lib/format'
+	Card,
+	CardContent,
+	CardDescription,
+	CardHeader,
+	CardTitle,
+} from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import {
+	Select,
+	SelectContent,
+	SelectItem,
+	SelectTrigger,
+	SelectValue,
+} from "@/components/ui/select";
+import { Skeleton } from "@/components/ui/skeleton";
+import {
+	Table,
+	TableBody,
+	TableCell,
+	TableEmpty,
+	TableHead,
+	TableHeader,
+	TableRow,
+} from "@/components/ui/table";
+import { useAuth } from "@/composables/useAuth";
+import {
+	getDashboardLogs,
+	getDashboardLogModelStats,
+	getDashboardLogStatusStats,
+	ApiError,
+	type DashboardLogParams,
+	type LogModelStatRow,
+	type LogStatusStat,
+	type LogRow,
+} from "@/services/api";
+import {
+	formatDateTime,
+	formatNumber,
+	formatCredit,
+	isErrorLog,
+	todayISODate,
+} from "@/lib/format";
 
-const { t } = useI18n()
-const { userApiKey } = useAuth()
+const { t } = useI18n();
+const { userApiKey } = useAuth();
 
-const loading = ref(true)
-const items = ref<LogRow[]>([])
-const modelStats = ref<LogModelStatRow[]>([])
-const statusStats = ref<LogStatusStat | null>(null)
-const page = ref(1)
-const size = ref(20)
-const total = ref(0)
-const modelFilter = ref('')
-const statusFilter = ref<'all' | 'success' | 'error'>('all')
-const fromDate = ref(todayISODate())
-const toDate = ref(todayISODate())
+const loading = ref(true);
+const items = ref<LogRow[]>([]);
+const modelStats = ref<LogModelStatRow[]>([]);
+const statusStats = ref<LogStatusStat | null>(null);
+const page = ref(1);
+const size = ref(20);
+const total = ref(0);
+const modelFilter = ref("");
+const statusFilter = ref<"all" | "success" | "error">("all");
+const fromDate = ref(todayISODate());
+const toDate = ref(todayISODate());
 
-const totalPages = computed(() => Math.max(1, Math.ceil(total.value / size.value)))
+const totalPages = computed(() =>
+	Math.max(1, Math.ceil(total.value / size.value)),
+);
 const modelChartRows = computed(() =>
-  modelStats.value.map((row) => ({
-    model: String(row.model_name || '—'),
-    count: Number(row.request_count ?? 0),
-    tokensIn: Number(row.tokens_in ?? 0),
-    tokensOut: Number(row.tokens_out ?? 0),
-    quota: Number(row.total_quota ?? 0),
-  })),
-)
-const maxModelTokens = computed(() => Math.max(1, ...modelChartRows.value.map((row) => row.tokensIn + row.tokensOut)))
+	modelStats.value.map((row) => ({
+		model: String(row.model_name || "—"),
+		count: Number(row.request_count ?? 0),
+		tokensIn: Number(row.tokens_in ?? 0),
+		tokensOut: Number(row.tokens_out ?? 0),
+		quota: Number(row.total_quota ?? 0),
+	})),
+);
+const maxModelTokens = computed(() =>
+	Math.max(
+		1,
+		...modelChartRows.value.map((row) => row.tokensIn + row.tokensOut),
+	),
+);
 
 const statusBreakdown = computed(() => {
-  const success = Number(statusStats.value?.success_count ?? 0)
-  const error = Number(statusStats.value?.error_count ?? 0)
-  const total = Number(statusStats.value?.total ?? success + error)
-  const denom = total > 0 ? total : 1
-  const successPct = (success / denom) * 100
-  const errorPct = (error / denom) * 100
-  return {
-    success,
-    error,
-    total,
-    successPct,
-    errorPct,
-    // Conic gradient stop for the donut: green up to successPct, red after.
-    gradient: `conic-gradient(rgb(34 197 94) 0% ${successPct}%, rgb(239 68 68) ${successPct}% 100%)`,
-  }
-})
+	const success = Number(statusStats.value?.success_count ?? 0);
+	const error = Number(statusStats.value?.error_count ?? 0);
+	const total = Number(statusStats.value?.total ?? success + error);
+	const denom = total > 0 ? total : 1;
+	const successPct = (success / denom) * 100;
+	const errorPct = (error / denom) * 100;
+	return {
+		success,
+		error,
+		total,
+		successPct,
+		errorPct,
+		// Conic gradient stop for the donut: green up to successPct, red after.
+		gradient: `conic-gradient(rgb(34 197 94) 0% ${successPct}%, rgb(239 68 68) ${successPct}% 100%)`,
+	};
+});
 
-function dateToUnixSeconds(value: string, endOfDay: boolean): number | undefined {
-  if (!value) return undefined
-  const suffix = endOfDay ? 'T23:59:59' : 'T00:00:00'
-  const time = new Date(`${value}${suffix}`).getTime()
-  return Number.isNaN(time) ? undefined : Math.floor(time / 1000)
+function dateToUnixSeconds(
+	value: string,
+	endOfDay: boolean,
+): number | undefined {
+	if (!value) return undefined;
+	const suffix = endOfDay ? "T23:59:59" : "T00:00:00";
+	const time = new Date(`${value}${suffix}`).getTime();
+	return Number.isNaN(time) ? undefined : Math.floor(time / 1000);
 }
 
 function buildParams(): DashboardLogParams {
-  return {
-    page: page.value,
-    size: size.value,
-    modelName: modelFilter.value.trim() || undefined,
-    status: statusFilter.value === 'all' ? '' : statusFilter.value,
-    startTime: dateToUnixSeconds(fromDate.value, false),
-    endTime: dateToUnixSeconds(toDate.value, true),
-  }
+	return {
+		page: page.value,
+		size: size.value,
+		modelName: modelFilter.value.trim() || undefined,
+		status: statusFilter.value === "all" ? "" : statusFilter.value,
+		startTime: dateToUnixSeconds(fromDate.value, false),
+		endTime: dateToUnixSeconds(toDate.value, true),
+	};
 }
 
-let loadingRequest = false
-let refreshTimer: number | undefined
+let loadingRequest = false;
+let refreshTimer: number | undefined;
 
 async function load(showSkeleton = true) {
-  if (loadingRequest) return
-  loadingRequest = true
-  if (showSkeleton) loading.value = true
-  try {
-    const params = buildParams()
-    const [logsRes, statsRes, statusRes] = await Promise.all([
-      getDashboardLogs(userApiKey.value, params),
-      getDashboardLogModelStats(userApiKey.value, params),
-      getDashboardLogStatusStats(userApiKey.value, {
-        modelName: params.modelName,
-        startTime: params.startTime,
-        endTime: params.endTime,
-      }),
-    ])
-    items.value = logsRes.items
-    total.value = logsRes.total
-    page.value = logsRes.page || page.value
-    size.value = logsRes.size || size.value
-    modelStats.value = statsRes
-    statusStats.value = statusRes
-  } catch (err) {
-    const msg = err instanceof ApiError ? err.message : String(err)
-    toast.error(t('common.error'), { description: msg })
-  } finally {
-    loading.value = false
-    loadingRequest = false
-  }
+	if (loadingRequest) return;
+	loadingRequest = true;
+	if (showSkeleton) loading.value = true;
+	try {
+		const params = buildParams();
+		const [logsRes, statsRes, statusRes] = await Promise.all([
+			getDashboardLogs(userApiKey.value, params),
+			getDashboardLogModelStats(userApiKey.value, params),
+			getDashboardLogStatusStats(userApiKey.value, {
+				modelName: params.modelName,
+				startTime: params.startTime,
+				endTime: params.endTime,
+			}),
+		]);
+		items.value = logsRes.items;
+		total.value = logsRes.total;
+		page.value = logsRes.page || page.value;
+		size.value = logsRes.size || size.value;
+		modelStats.value = statsRes;
+		statusStats.value = statusRes;
+	} catch (err) {
+		const msg = err instanceof ApiError ? err.message : String(err);
+		toast.error(t("common.error"), { description: msg });
+	} finally {
+		loading.value = false;
+		loadingRequest = false;
+	}
 }
 
 function applyFilters() {
-  page.value = 1
-  load()
+	page.value = 1;
+	load();
 }
 
 function resetFilters() {
-  modelFilter.value = ''
-  statusFilter.value = 'all'
-  fromDate.value = todayISODate()
-  toDate.value = todayISODate()
-  page.value = 1
-  load()
+	modelFilter.value = "";
+	statusFilter.value = "all";
+	fromDate.value = todayISODate();
+	toDate.value = todayISODate();
+	page.value = 1;
+	load();
 }
 
 function go(delta: number) {
-  const next = page.value + delta
-  if (next < 1 || next > totalPages.value) return
-  page.value = next
-  load()
+	const next = page.value + delta;
+	if (next < 1 || next > totalPages.value) return;
+	page.value = next;
+	load();
 }
 
 function responseTime(value: unknown) {
-  const n = Number(value ?? 0)
-  if (!Number.isFinite(n) || n <= 0) return '—'
-  const seconds = n > 1000 ? n / 1000 : n
-  return seconds >= 10 ? `${seconds.toFixed(0)}s` : `${seconds.toFixed(2)}s`
+	const n = Number(value ?? 0);
+	if (!Number.isFinite(n) || n <= 0) return "—";
+	const seconds = n > 1000 ? n / 1000 : n;
+	return seconds >= 10 ? `${seconds.toFixed(0)}s` : `${seconds.toFixed(2)}s`;
 }
 
 function rowIsError(row: LogRow) {
-  if (row.request_status) return row.request_status === 'error'
-  return isErrorLog(row)
+	if (row.request_status) return row.request_status === "error";
+	return isErrorLog(row);
 }
 
 function errorDetail(row: LogRow): string {
-  const label = row.error_message || row.error_type || row.error_code
-  const parts = [row.status_code, label].filter(Boolean)
-  return parts.length > 0 ? parts.join(' · ') : '—'
+	const label = row.error_message || row.error_type || row.error_code;
+	const parts = [row.status_code, label].filter(Boolean);
+	return parts.length > 0 ? parts.join(" · ") : "—";
 }
 
 onMounted(() => {
-  void load(true)
-  refreshTimer = window.setInterval(() => void load(false), 10_000)
-})
+	void load(true);
+	refreshTimer = window.setInterval(() => void load(false), 10_000);
+});
 
 onBeforeUnmount(() => {
-  if (refreshTimer) window.clearInterval(refreshTimer)
-})
+	if (refreshTimer) window.clearInterval(refreshTimer);
+});
 </script>
 
 <template>
@@ -336,6 +369,7 @@ onBeforeUnmount(() => {
                 <TableHead class="text-right">{{ t('user.logs.tokensIn') }}</TableHead>
                 <TableHead class="text-right">{{ t('user.logs.tokensOut') }}</TableHead>
                 <TableHead class="text-right">{{ t('user.logs.convertedTokens') }}</TableHead>
+                <TableHead>{{ t('user.logs.thinking') }}</TableHead>
                 <TableHead class="text-right">{{ t('user.logs.cost') }}</TableHead>
                 <TableHead class="text-right">{{ t('user.logs.responseTime') }}</TableHead>
                 <TableHead>{{ t('user.logs.channel') }}</TableHead>
@@ -343,7 +377,7 @@ onBeforeUnmount(() => {
               </TableRow>
             </TableHeader>
             <TableBody>
-              <TableEmpty v-if="!items.length" :colspan="9">{{ t('common.noData') }}</TableEmpty>
+              <TableEmpty v-if="!items.length" :colspan="10">{{ t('common.noData') }}</TableEmpty>
               <TableRow v-for="row in items" :key="String(row.id)">
                 <TableCell class="whitespace-nowrap text-muted-foreground">
                   {{ formatDateTime(row.created_at) }}
@@ -352,6 +386,7 @@ onBeforeUnmount(() => {
                 <TableCell class="text-right tabular-nums">{{ formatNumber(row.prompt_tokens) }}</TableCell>
                 <TableCell class="text-right tabular-nums">{{ formatNumber(row.completion_tokens) }}</TableCell>
                 <TableCell class="text-right tabular-nums">{{ formatNumber(row.quota) }}</TableCell>
+                <TableCell><Badge v-if="row.reasoning_effort" variant="outline">{{ row.reasoning_effort }}</Badge><span v-else>—</span></TableCell>
                 <TableCell class="text-right tabular-nums">{{ formatCredit(row.quota) }}</TableCell>
                 <TableCell class="text-right tabular-nums">{{ responseTime(row.use_time) }}</TableCell>
                 <TableCell class="text-muted-foreground">{{ row.channel_name || '—' }}</TableCell>

@@ -88,6 +88,8 @@ export type LogRow = Record<string, unknown> & {
   error_message?: string
   error_type?: string
   error_code?: string
+  reasoning_effort?: string
+  group?: string
   user_id?: number
 }
 

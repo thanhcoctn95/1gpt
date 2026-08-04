@@ -15,7 +15,7 @@ resources:
 images:
   - name: registry.inviv.vn/oneapi/potal-backend
     newName: registry.inviv.vn/oneapi/potal-backend
-    newTag: "20260803-084519-logs-quota-reconcile-backend-amd64"
+    newTag: "20260804-105854-admin-logs-ledger-amd64"
   - name: registry.inviv.vn/oneapi/potal-frontend
     newName: registry.inviv.vn/oneapi/potal-frontend
-    newTag: "20260801-105500-payg-luna-rates-amd64"
+    newTag: "20260804-150325-admin-logs-thinking-column-amd64"
