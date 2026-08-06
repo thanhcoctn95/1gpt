@@ -369,7 +369,6 @@ onBeforeUnmount(() => {
                 <TableHead class="text-right">{{ t('user.logs.tokensIn') }}</TableHead>
                 <TableHead class="text-right">{{ t('user.logs.tokensOut') }}</TableHead>
                 <TableHead class="text-right">{{ t('user.logs.convertedTokens') }}</TableHead>
-                <TableHead>{{ t('user.logs.thinking') }}</TableHead>
                 <TableHead class="text-right">{{ t('user.logs.cost') }}</TableHead>
                 <TableHead class="text-right">{{ t('user.logs.responseTime') }}</TableHead>
                 <TableHead>{{ t('user.logs.channel') }}</TableHead>
@@ -377,7 +376,7 @@ onBeforeUnmount(() => {
               </TableRow>
             </TableHeader>
             <TableBody>
-              <TableEmpty v-if="!items.length" :colspan="10">{{ t('common.noData') }}</TableEmpty>
+              <TableEmpty v-if="!items.length" :colspan="9">{{ t('common.noData') }}</TableEmpty>
               <TableRow v-for="row in items" :key="String(row.id)">
                 <TableCell class="whitespace-nowrap text-muted-foreground">
                   {{ formatDateTime(row.created_at) }}
@@ -386,7 +385,6 @@ onBeforeUnmount(() => {
                 <TableCell class="text-right tabular-nums">{{ formatNumber(row.prompt_tokens) }}</TableCell>
                 <TableCell class="text-right tabular-nums">{{ formatNumber(row.completion_tokens) }}</TableCell>
                 <TableCell class="text-right tabular-nums">{{ formatNumber(row.quota) }}</TableCell>
-                <TableCell><Badge v-if="row.reasoning_effort" variant="outline">{{ row.reasoning_effort }}</Badge><span v-else>—</span></TableCell>
                 <TableCell class="text-right tabular-nums">{{ formatCredit(row.quota) }}</TableCell>
                 <TableCell class="text-right tabular-nums">{{ responseTime(row.use_time) }}</TableCell>
                 <TableCell class="text-muted-foreground">{{ row.channel_name || '—' }}</TableCell>
