@@ -200,28 +200,6 @@ function prevPage() {
 	fetchLogs();
 }
 
-function errorDetail(row: LogRow): string {
-	const label = row.error_message || row.error_type || row.error_code;
-	const parts = [row.status_code, label].filter(Boolean);
-	return parts.length > 0 ? parts.join(" · ") : "—";
-}
-
-const expandedRows = ref<Set<string>>(new Set());
-
-function rowKey(row: LogRow): string {
-	return String(
-		row.id ?? row.request_id ?? `${row.created_at}-${row.model_name}`,
-	);
-}
-
-function toggleRow(row: LogRow) {
-	const key = rowKey(row);
-	const next = new Set(expandedRows.value);
-	if (next.has(key)) next.delete(key);
-	else next.add(key);
-	expandedRows.value = next;
-}
-
 function otherDetails(row: LogRow): Record<string, unknown> {
 	if (!row.other) return {};
 	try {
@@ -557,7 +535,6 @@ onMounted(() => {
         <div class="overflow-x-auto rounded-lg border bg-card/40">
           <Table class="min-w-[1500px]">
             <TableHeader><TableRow>
-              <TableHead class="w-8"></TableHead>
               <TableHead>{{ t('admin.logs.time') }}</TableHead>
               <TableHead>{{ t('admin.logs.channel') }}</TableHead>
               <TableHead>{{ t('admin.logs.user') }}</TableHead>
@@ -573,10 +550,9 @@ onMounted(() => {
               <TableHead>{{ t('admin.logs.details') }}</TableHead>
             </TableRow></TableHeader>
             <TableBody>
-              <TableEmpty v-if="!loading && !logs.length" :colspan="13" class="text-muted-foreground">{{ t('common.noData') }}</TableEmpty>
-              <template v-for="row in logs" v-else :key="rowKey(row)">
+              <TableEmpty v-if="!loading && !logs.length" :colspan="12" class="text-muted-foreground">{{ t('common.noData') }}</TableEmpty>
+              <template v-for="row in logs" v-else :key="String(row.id ?? row.request_id ?? `${row.created_at}-${row.model_name}`)">
                 <TableRow class="align-middle">
-                  <TableCell class="px-2"><Button variant="ghost" size="icon" class="size-7" @click="toggleRow(row)"><IconChevronRight class="size-4 transition-transform" :class="{ 'rotate-90': expandedRows.has(rowKey(row)) }" /></Button></TableCell>
                   <TableCell class="whitespace-nowrap text-xs text-muted-foreground">{{ formatDateTime(row.created_at) }}</TableCell>
                   <TableCell><Badge variant="secondary">{{ row.channel_name || '—' }}</Badge></TableCell>
                   <TableCell><div class="flex items-center gap-2 font-medium"><span class="flex size-6 items-center justify-center rounded-full text-xs text-white" :class="userColor(row.username)">{{ String(row.username || '?').slice(0, 1).toUpperCase() }}</span>{{ row.username || '—' }}</div></TableCell>
@@ -588,10 +564,9 @@ onMounted(() => {
                   <TableCell class="whitespace-nowrap"><div class="flex gap-1 text-xs tabular-nums"><Badge variant="secondary">{{ formatResponseTime(row.use_time) }}</Badge><Badge variant="outline">{{ row.is_stream ? 'stream' : '—' }}</Badge></div></TableCell>
                   <TableCell class="text-right tabular-nums">{{ formatNumber(row.prompt_tokens) }}</TableCell>
                   <TableCell class="text-right tabular-nums">{{ formatNumber(row.completion_tokens) }}</TableCell>
-                  <TableCell><Badge :variant="row.request_status === 'error' ? 'destructive' : 'secondary'">{{ row.request_status === 'error' ? t('common.error') : t('admin.logs.subscriptionDeduction') }}</Badge></TableCell>
+                  <TableCell class="whitespace-nowrap font-medium tabular-nums text-destructive">-{{ formatCredit(row.quota) }} cr</TableCell>
                   <TableCell class="min-w-64 text-xs text-muted-foreground"><div>Group ratio {{ detailValue(row, 'group_ratio') }}x</div><div>Input {{ detailValue(row, 'input_rate') }} / 1M tokens</div><div>Completion {{ detailValue(row, 'output_rate') }} / 1M tokens</div></TableCell>
                 </TableRow>
-                <TableRow v-if="expandedRows.has(rowKey(row))" class="bg-muted/20"><TableCell></TableCell><TableCell colspan="12" class="text-xs text-muted-foreground"><strong>Request:</strong> {{ row.request_id || '—' }} <span class="mx-2">·</span><strong>Credit:</strong> {{ formatCredit(row.quota) }}<span v-if="row.request_status === 'error'" class="ml-2 text-destructive">{{ errorDetail(row) }}</span></TableCell></TableRow>
               </template>
             </TableBody>
           </Table>
