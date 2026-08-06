@@ -1073,18 +1073,17 @@ public class ProvisioningController {
         try {
             int reconciled = jdbc.update("""
                 UPDATE user_subscriptions s
-                SET amount_used = usage.used_from_logs,
+                SET amount_used = (
+                        SELECT COALESCE(SUM(l.quota), 0)::bigint
+                        FROM logs l
+                        WHERE l.user_id = s.user_id
+                          AND l.created_at >= s.last_reset_time
+                          AND (s.next_reset_time = 0 OR l.created_at < s.next_reset_time)
+                    ),
                     amount_total = p.total_amount,
                     daily_extra_quota = 0,
                     updated_at = ?
                 FROM subscription_plans p
-                LEFT JOIN LATERAL (
-                    SELECT COALESCE(SUM(l.quota), 0)::bigint AS used_from_logs
-                    FROM logs l
-                    WHERE l.user_id = s.user_id
-                      AND l.created_at >= s.last_reset_time
-                      AND (s.next_reset_time = 0 OR l.created_at < s.next_reset_time)
-                ) usage ON true
                 WHERE s.plan_id = p.id
                   AND s.status = 'active'
                   AND COALESCE(p.quota_reset_period, 'daily') != 'never'
