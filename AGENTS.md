@@ -6,12 +6,25 @@ These rules apply to ordinary chat, slash workflows, and subagents in projects t
 
 Always-on execution loop for non-trivial work. It stays active even when the rest of the prompt is noisy. For trivial one-liners, use judgment.
 
-1. Clarify before committing. Surface assumptions or ask instead of silently choosing one interpretation from several valid readings. If a simpler approach exists, say so.
+1. Clarify before committing. Surface assumptions or ask instead of silently choosing one interpretation from several valid readings. If a simpler approach exists, say so. **Do not reopen decisions already accepted in the active brainstorming/spec/plan. During implementation, treat those artifacts and tracked task acceptance criteria as sufficient scope authority; ask again only when new evidence creates a material contradiction, a required input is missing, or approval is required for a risky action.**
 2. Choose the smallest working change. Solve today's problem directly before inventing flexibility; no speculative abstractions or error handling for impossible scenarios.
 3. Keep diffs surgical. Every changed line traces to the current request and matches existing style. Log unrelated issues as `NOTICED BUT NOT TOUCHING: ...` and keep moving.
 4. Define proof before acting. Name the success check (command, test path, or evidence) before implementing, then run that proof after.
 
 When you catch yourself adding abstraction for a single use case, editing adjacent code "while you're here", postponing verification, or claiming completion without a named proof path, stop and re-center on this kernel. See `.pi/skills/context/behavioral-kernel/SKILL.md` for the deep version with examples.
+
+## Long-Running Continuation
+
+Compaction is a context-maintenance event, not a workflow checkpoint. After automatic compaction, recover the active task, accepted decisions, current proof gate, and next executable action, then continue implementation in the same run. Do not emit a handoff-only response, leave executable work pending, or ask the user to say "continue" merely because compaction occurred.
+
+A completed brainstorming/spec/plan establishes scope authority for implementation. Do not ask the user to reconfirm that scope. Escalate only for genuinely new information that causes one of these conditions:
+
+- a material contradiction with the accepted outcome, public contract, acceptance criteria, or non-goals;
+- a required credential/value/decision that cannot be derived from repository state or prior artifacts;
+- a destructive, external, dependency, branch/worktree, commit/push, or otherwise approval-gated action;
+- collision with unrelated user changes or a necessary material scope expansion.
+
+Routine implementation choices inside declared files, acceptance criteria, and non-goals are agent-owned. Record the choice and proceed.
 
 ## Start-of-Work Routing
 
