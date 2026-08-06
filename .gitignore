@@ -49,3 +49,4 @@ backups/
 .pi/verify-cache.json
 .pi/task-registry.json
 .pi/task-session-history.json
+.pi/artifacts/
