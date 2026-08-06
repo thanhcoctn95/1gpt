@@ -18,4 +18,4 @@ images:
     newTag: "20260806-111404-fix-reconcile-lateral-amd64"
   - name: registry.inviv.vn/oneapi/potal-frontend
     newName: registry.inviv.vn/oneapi/potal-frontend
-    newTag: "20260806-110710-hide-user-thinking-amd64"
+    newTag: "20260806-115432-admin-logs-inline-credit-amd64"
