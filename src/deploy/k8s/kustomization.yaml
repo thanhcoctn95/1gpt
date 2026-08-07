@@ -15,7 +15,7 @@ resources:
 images:
   - name: registry.inviv.vn/oneapi/potal-backend
     newName: registry.inviv.vn/oneapi/potal-backend
-    newTag: "20260806-111404-fix-reconcile-lateral-amd64"
+    newTag: "20260807-152759-daily-quota-mixed-expiry-amd64"
   - name: registry.inviv.vn/oneapi/potal-frontend
     newName: registry.inviv.vn/oneapi/potal-frontend
     newTag: "20260806-115432-admin-logs-inline-credit-amd64"

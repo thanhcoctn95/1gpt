@@ -34,6 +34,55 @@ public class ProvisioningController {
     private final ZoneId resetZone;
     private static final SecureRandom RANDOM = new SecureRandom();
     private static final long TOKEN_PACK_SECONDS = 100L * 365 * 24 * 60 * 60;
+    static final String ACTIVE_MONTHLY_EXPIRY_SQL = "max(active.end_time) FILTER (WHERE active.quota_reset_period != 'never')";
+    static final String STALE_DAILY_SUBSCRIPTIONS_SQL = """
+        UPDATE user_subscriptions stale
+        SET status = 'cancelled', updated_at = ?
+        WHERE stale.status = 'active'
+          AND EXISTS (
+              SELECT 1
+              FROM subscription_plans stale_plan
+              WHERE stale_plan.id = stale.plan_id
+                AND COALESCE(stale_plan.quota_reset_period, 'daily') != 'never'
+          )
+          AND stale.id <> (
+              SELECT current_s.id
+              FROM user_subscriptions current_s
+              JOIN subscription_plans current_p ON current_p.id = current_s.plan_id
+              WHERE current_s.user_id = stale.user_id
+                AND current_s.status = 'active'
+                AND COALESCE(current_p.quota_reset_period, 'daily') != 'never'
+              ORDER BY current_s.start_time DESC, current_s.id DESC
+              LIMIT 1
+          )
+        """;
+    static final String DAILY_QUOTA_RECONCILIATION_SQL = """
+        UPDATE user_subscriptions s
+        SET amount_used = (
+                SELECT COALESCE(SUM(l.quota), 0)::bigint
+                FROM logs l
+                WHERE l.user_id = s.user_id
+                  AND l.created_at >= s.last_reset_time
+                  AND (s.next_reset_time = 0 OR l.created_at < s.next_reset_time)
+            ),
+            amount_total = p.total_amount,
+            daily_extra_quota = 0,
+            updated_at = ?
+        FROM subscription_plans p
+        WHERE s.plan_id = p.id
+          AND s.status = 'active'
+          AND COALESCE(p.quota_reset_period, 'daily') != 'never'
+          AND s.id = (
+              SELECT current_s.id
+              FROM user_subscriptions current_s
+              JOIN subscription_plans current_p ON current_p.id = current_s.plan_id
+              WHERE current_s.user_id = s.user_id
+                AND current_s.status = 'active'
+                AND COALESCE(current_p.quota_reset_period, 'daily') != 'never'
+              ORDER BY current_s.start_time DESC, current_s.id DESC
+              LIMIT 1
+          )
+        """;
     // Errors surfaced by New API: HTTP 4xx/5xx in content, explicit error_code/error_type in `other`,
     // or a streamed request that failed/was cancelled mid-flight (e.g. client_gone) where
     // stream_status.status = "error". The latter has no HTTP status_code, so it must be matched here.
@@ -335,7 +384,7 @@ public class ProvisioningController {
                        END AS quota_reset_period,
                        sum(active.amount_total - active.amount_used)::bigint AS amount_left,
                        min(active.start_time) AS start_time,
-                       max(active.end_time) AS end_time,
+                       %s AS end_time,
                        max(active.last_reset_time) AS last_reset_time,
                        max(active.next_reset_time) AS next_reset_time,
                        count(*)::bigint AS subscription_count
@@ -354,7 +403,7 @@ public class ProvisioningController {
             WHERE u.deleted_at IS NULL
             ORDER BY u.id DESC
             LIMIT 50
-            """);
+            """.formatted(ACTIVE_MONTHLY_EXPIRY_SQL));
         return Map.of("success", true, "data", rows);
     }
 
@@ -784,7 +833,8 @@ public class ProvisioningController {
             )));
         }
 
-        // Monthly plan: daily bonus — increase amount_total AND daily_extra_quota (reverted at midnight).
+        // Monthly plan: add the grant for the current day only. The daily reconciliation
+        // below restores amount_total from the currently active plan on the next day.
         long nextExtra = currentExtra + safeRequest.amount();
         jdbc.update("""
             UPDATE user_subscriptions
@@ -1064,33 +1114,20 @@ public class ProvisioningController {
     }
 
     /**
-     * Reconcile active monthly subscription counters from logs.quota, which is the
-     * source of truth for usage. Never clear amount_used without accounting for logs.
+     * At midnight, discard same-day admin grants and restore quota from only the user's
+     * currently active monthly package. This avoids stale monthly subscriptions being
+     * added together with the current package.
      */
     @Scheduled(cron = "0 0 0 * * *", zone = "Asia/Ho_Chi_Minh")
+    @Transactional
     public void resetDailyExtraQuota() {
         long now = Instant.now().getEpochSecond();
         try {
-            int reconciled = jdbc.update("""
-                UPDATE user_subscriptions s
-                SET amount_used = (
-                        SELECT COALESCE(SUM(l.quota), 0)::bigint
-                        FROM logs l
-                        WHERE l.user_id = s.user_id
-                          AND l.created_at >= s.last_reset_time
-                          AND (s.next_reset_time = 0 OR l.created_at < s.next_reset_time)
-                    ),
-                    amount_total = p.total_amount,
-                    daily_extra_quota = 0,
-                    updated_at = ?
-                FROM subscription_plans p
-                WHERE s.plan_id = p.id
-                  AND s.status = 'active'
-                  AND COALESCE(p.quota_reset_period, 'daily') != 'never'
-                """, now);
-            log.info("Daily subscription log reconciliation complete: {} subscriptions reconciled", reconciled);
+            int cancelled = jdbc.update(STALE_DAILY_SUBSCRIPTIONS_SQL, now);
+            int reconciled = jdbc.update(DAILY_QUOTA_RECONCILIATION_SQL, now);
+            log.info("Daily subscription reconciliation complete: {} current subscriptions reconciled; {} stale monthly subscriptions cancelled", reconciled, cancelled);
         } catch (Exception e) {
-            log.error("Daily subscription log reconciliation failed", e);
+            log.error("Daily subscription reconciliation failed", e);
         }
     }
 
