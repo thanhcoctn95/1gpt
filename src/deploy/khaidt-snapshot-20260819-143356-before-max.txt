@@ -1,0 +1,97 @@
+-[ RECORD 1 ]---+-------------------------------------------
+id              | 3
+username        | khaidt
+password        | portal-provisioned
+display_name    | khaidt
+role            | 1
+status          | 1
+email           | 
+github_id       | 
+discord_id      | 
+oidc_id         | 
+wechat_id       | 
+telegram_id     | 
+access_token    | 
+quota           | 0
+used_quota      | 2822737490
+request_count   | 36201
+group           | default
+aff_code        | cdf6e028665fe833
+aff_count       | 0
+aff_quota       | 0
+aff_history     | 0
+inviter_id      | 0
+deleted_at      | 
+linux_do_id     | 
+setting         | {"billing_preference":"subscription_only"}
+remark          | Provisioned by portal admin
+stripe_customer | 
+created_at      | 1782696737
+last_login_at   | 0
+
+-[ RECORD 1 ]---------+-------------
+id                    | 1
+user_id               | 3
+plan_id               | 9
+amount_total          | 40000000
+amount_used           | 0
+start_time            | 1782696737
+end_time              | 1785375137
+status                | expired
+source                | portal-admin
+last_reset_time       | 1785344400
+next_reset_time       | 0
+upgrade_group         | 
+prev_user_group       | 
+downgrade_group       | 
+allow_wallet_overflow | 
+created_at            | 1782696737
+updated_at            | 1785375171
+daily_extra_quota     | 0
+-[ RECORD 2 ]---------+-------------
+id                    | 6
+user_id               | 3
+plan_id               | 10
+amount_total          | 100000000
+amount_used           | 80465408
+start_time            | 1785380727
+end_time              | 1788059127
+status                | active
+source                | manual-admin
+last_reset_time       | 1787072400
+next_reset_time       | 1787158800
+upgrade_group         | 
+prev_user_group       | 
+downgrade_group       | 
+allow_wallet_overflow | 
+created_at            | 1785380727
+updated_at            | 1787124731
+daily_extra_quota     | 40000000
+-[ RECORD 3 ]---------+-------------
+id                    | 12
+user_id               | 3
+plan_id               | 7
+amount_total          | 250000000
+amount_used           | 91423874
+start_time            | 1786328575
+end_time              | 4939928575
+status                | cancelled
+source                | portal-admin
+last_reset_time       | 0
+next_reset_time       | 0
+upgrade_group         | 
+prev_user_group       | 
+downgrade_group       | 
+allow_wallet_overflow | 
+created_at            | 1786328575
+updated_at            | 1786413015
+daily_extra_quota     | 0
+
+-[ RECORD 1 ]--------+-------------------------------------------------------------------------------
+id                   | 2
+name                 | khaidt-token
+group                | default
+status               | 1
+model_limits_enabled | t
+model_limits         | deepseek-v4-flash,gpt-5.5,gpt-5.5-xhigh,gpt-5.6-luna,gpt-5.6-sol,gpt-5.6-terra
+
