@@ -126,6 +126,27 @@ export function computeRefund(priceAmount: number | undefined | null, endTime: u
   return { refund, daysLeft }
 }
 
+/**
+ * Upgrade cost = new plan price − unused value of the current plan.
+ *
+ * The unused value reuses computeRefund (price / 30 days × remaining days) because
+ * POST /api/pricing/apply cancels the active monthly subscription and issues a fresh
+ * 1-month subscription starting today, so the remaining days of the old plan are the
+ * only thing that can be credited back.
+ *
+ * The credit is capped at the new plan price and the cost never goes below 0.
+ */
+export function computeUpgradeCost(
+  newPlanPrice: number | undefined | null,
+  currentPlanPrice: number | undefined | null,
+  currentEndTime: unknown,
+): { cost: number; credit: number; daysLeft: number } {
+  const price = typeof newPlanPrice === 'number' && !Number.isNaN(newPlanPrice) ? newPlanPrice : 0
+  const { refund, daysLeft } = computeRefund(currentPlanPrice, currentEndTime)
+  const credit = Math.min(refund, price)
+  return { cost: Math.max(0, price - credit), credit, daysLeft }
+}
+
 export function maskKey(key: string | undefined | null): string {
   if (!key) return '—'
   if (key.length <= 12) return key

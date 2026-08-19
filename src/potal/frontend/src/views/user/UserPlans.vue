@@ -9,22 +9,37 @@ import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useAuth } from '@/composables/useAuth'
 import { ApiError, getPublicPlans, getDashboardMe, getModelRatios, type ModelRatioRow, type PublicPlanRow, type SubscriptionRow } from '@/services/api'
-import { formatVnd, formatCredit, quotaToCredit } from '@/lib/format'
+import { formatVnd, formatCredit, quotaToCredit, computeUpgradeCost } from '@/lib/format'
 
 const { t, locale } = useI18n()
 const { userApiKey } = useAuth()
 
 const loading = ref(true)
 const plans = ref<PublicPlanRow[]>([])
-const activePlanTitle = ref('')
+const activeSub = ref<SubscriptionRow | null>(null)
 const modelRatios = ref<ModelRatioRow[]>([])
 const expandedPlans = ref<number[]>([])
 
-const monthlyPlans = computed(() =>
-  plans.value
-    .filter((p) => p.quota_reset_period === 'daily')
-    .sort((a, b) => Number(a.sort_order ?? 0) - Number(b.sort_order ?? 0)),
+const activePlanTitle = computed(() =>
+  String(activeSub.value?.plan_title ?? '').trim().toLowerCase(),
 )
+
+// Each monthly plan priced above the active plan carries an `upgrade` quote:
+// new price minus the unused value of the current plan.
+const monthlyPlans = computed(() => {
+  const sub = activeSub.value
+  const currentPrice = Number(sub?.price_amount ?? 0)
+  return plans.value
+    .filter((p) => p.quota_reset_period === 'daily')
+    .sort((a, b) => Number(a.sort_order ?? 0) - Number(b.sort_order ?? 0))
+    .map((plan) => ({
+      ...plan,
+      upgrade:
+        sub && Number(plan.price_amount ?? 0) > currentPrice
+          ? computeUpgradeCost(Number(plan.price_amount ?? 0), currentPrice, sub.end_time)
+          : null,
+    }))
+})
 const onetimePlans = computed(() =>
   plans.value
     .filter((p) => p.quota_reset_period !== 'daily')
@@ -69,10 +84,9 @@ async function load() {
     plans.value = plansRes
     modelRatios.value = ratioResponse.models
     const subs = (meRes?.subscriptions ?? []) as SubscriptionRow[]
-    const active = subs.find(
+    activeSub.value = subs.find(
       (s) => s.status === 'active' && s.quota_reset_period !== 'never',
     ) ?? null
-    activePlanTitle.value = String(active?.plan_title ?? '').trim().toLowerCase()
   } catch (err) {
     toast.error(err instanceof ApiError ? err.message : t('common.error'))
   } finally {
@@ -121,6 +135,15 @@ onMounted(load)
               </span>
               <span class="ml-1 text-sm">{{ t('user.plans.perMonth') }}</span>
             </CardDescription>
+            <div v-if="plan.upgrade" class="flex flex-col">
+              <span class="text-sm">
+                <span class="font-semibold tabular-nums text-primary">+{{ formatVnd(plan.upgrade.cost) }}</span>
+                <span class="ml-1 text-muted-foreground">{{ t('user.plans.toUpgradeNow') }}</span>
+              </span>
+              <span v-if="plan.upgrade.credit > 0" class="text-xs tabular-nums text-muted-foreground">
+                {{ t('user.plans.upgradeCredited', { amount: formatVnd(plan.upgrade.credit), days: plan.upgrade.daysLeft }) }}
+              </span>
+            </div>
           </CardHeader>
           <CardContent class="flex flex-1 flex-col gap-3">
             <p class="text-lg font-medium tabular-nums">

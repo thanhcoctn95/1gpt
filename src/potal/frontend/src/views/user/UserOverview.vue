@@ -10,6 +10,7 @@ import {
   IconActivity,
   IconTrophy,
   IconCopy,
+  IconTrendingUp,
 } from '@tabler/icons-vue'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -21,10 +22,12 @@ import {
   getDashboardMe,
   getPortalConfig,
   getDashboardLogs,
+  getPublicPlans,
   ApiError,
   type DashboardMe,
   type SubscriptionRow,
   type LogRow,
+  type PublicPlanRow,
 } from '@/services/api'
 import {
   formatVnd,
@@ -32,6 +35,7 @@ import {
   formatCredit,
   formatDate,
   computeRefund,
+  computeUpgradeCost,
 } from '@/lib/format'
 
 const { t } = useI18n()
@@ -41,6 +45,7 @@ const loading = ref(true)
 const me = ref<DashboardMe | null>(null)
 const connectionUrl = ref('')
 const logs = ref<LogRow[]>([])
+const plans = ref<PublicPlanRow[]>([])
 
 const activeMonthlySub = computed<SubscriptionRow | null>(() =>
   (me.value?.subscriptions ?? []).find(
@@ -92,6 +97,27 @@ const requests24h = computed(() => Number(me.value?.stats24h?.request_24h ?? 0))
 
 const refund = computed(() =>
   computeRefund(Number(activeSub.value?.price_amount ?? 0), activeSub.value?.end_time),
+)
+
+// Upgrade quotes: every monthly plan priced above the active monthly plan, with the
+// unused value of the current plan already deducted. Without an active monthly plan
+// the current price is 0, so each plan is quoted at full price.
+const currentPlanPrice = computed(() => Number(activeMonthlySub.value?.price_amount ?? 0))
+
+const upgradeOptions = computed(() =>
+  plans.value
+    .filter(
+      (p) => p.quota_reset_period === 'daily' && Number(p.price_amount ?? 0) > currentPlanPrice.value,
+    )
+    .sort((a, b) => Number(a.price_amount ?? 0) - Number(b.price_amount ?? 0))
+    .map((plan) => ({
+      plan,
+      ...computeUpgradeCost(
+        Number(plan.price_amount ?? 0),
+        currentPlanPrice.value,
+        activeMonthlySub.value?.end_time,
+      ),
+    })),
 )
 
 // Requests grouped by hour bucket (0-23) over the last 24h.
@@ -147,14 +173,16 @@ async function load(showSkeleton = true) {
   loadingRequest = true
   if (showSkeleton) loading.value = true
   try {
-    const [meRes, configRes, logsRes] = await Promise.all([
+    const [meRes, configRes, logsRes, plansRes] = await Promise.all([
       getDashboardMe(userApiKey.value),
       getPortalConfig().catch(() => null),
       getDashboardLogs(userApiKey.value, { page: 1, size: 1000 }).catch(() => null),
+      getPublicPlans().catch(() => null),
     ])
     me.value = meRes
     connectionUrl.value = openAiConnectionUrl(configRes)
     logs.value = logsRes?.items ?? []
+    plans.value = plansRes ?? []
   } catch (err) {
     const msg = err instanceof ApiError ? err.message : String(err)
     toast.error(t('common.error'), { description: msg })
@@ -270,6 +298,49 @@ onBeforeUnmount(() => {
         </CardContent>
       </Card>
     </div>
+
+    <!-- Upgrade cost -->
+    <Card>
+      <CardHeader>
+        <CardDescription class="flex items-center gap-2">
+          <IconTrendingUp class="size-4" /> {{ t('user.overview.upgrade') }}
+        </CardDescription>
+        <CardTitle class="text-sm font-normal text-muted-foreground">
+          {{ activeMonthlySub ? t('user.overview.upgradeHint') : t('user.overview.upgradeNoPlan') }}
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div v-if="loading" class="flex flex-col gap-2">
+          <Skeleton v-for="i in 3" :key="i" class="h-10 w-full" />
+        </div>
+        <div v-else-if="!upgradeOptions.length" class="py-2 text-sm text-muted-foreground">
+          {{ t('user.overview.upgradeNone') }}
+        </div>
+        <template v-else>
+          <ul class="flex flex-col divide-y">
+            <li
+              v-for="option in upgradeOptions"
+              :key="option.plan.id"
+              class="flex flex-wrap items-center justify-between gap-2 py-2"
+            >
+              <div class="flex flex-col">
+                <span class="font-medium">{{ option.plan.title }}</span>
+                <span class="text-xs tabular-nums text-muted-foreground">
+                  {{ formatCredit(option.plan.total_amount) }} {{ t('user.plans.creditPerDay') }}
+                </span>
+              </div>
+              <div class="flex flex-col items-end">
+                <span class="text-lg font-semibold tabular-nums">+{{ formatVnd(option.cost) }}</span>
+                <span v-if="option.credit > 0" class="text-xs tabular-nums text-muted-foreground">
+                  {{ t('user.overview.upgradeCredited', { amount: formatVnd(option.credit) }) }}
+                </span>
+              </div>
+            </li>
+          </ul>
+          <p class="mt-3 text-xs text-muted-foreground">{{ t('user.overview.upgradeContact') }}</p>
+        </template>
+      </CardContent>
+    </Card>
 
     <!-- Requests 24h + Top models -->
     <div class="grid grid-cols-1 gap-4 md:gap-6 lg:grid-cols-3">
